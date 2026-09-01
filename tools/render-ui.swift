@@ -144,6 +144,12 @@ struct RenderUI {
         render(SettingsView(controller: controller).environmentObject(store),
                named: "settings-general-\(suffix)", size: CGSize(width: 520, height: 800),
                appearance: appearance)
+
+        // The Calendar pane, including the Accounts list. With no calendar access here it
+        // shows its empty state, which is the path a new user sees first.
+        render(SettingsView(controller: controller, initialTab: .calendar).environmentObject(store),
+               named: "settings-calendar-\(suffix)", size: CGSize(width: 520, height: 800),
+               appearance: appearance)
     }
 
     // The full-screen look at a few realistic sizes and content lengths.

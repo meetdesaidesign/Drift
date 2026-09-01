@@ -79,6 +79,53 @@ actually needs it, so if you only ever use custom statuses you will never see th
 If you decline and change your mind, Settings › Calendar has a button through to
 **System Settings › Privacy & Security › Calendars**.
 
+### Google, iCloud, Exchange
+
+There is no Google Calendar integration, and there does not need to be one. Drift reads
+**every calendar in every account Calendar.app syncs** — so if your Google account is added
+in System Settings › Internet Accounts, Drift is already showing your Google meetings.
+Same for iCloud and Exchange. Settings › Calendar lists the accounts it can see, so you can
+check rather than guess.
+
+This is deliberate: it means Drift has no OAuth client, no stored token, no refresh loop and
+no network code at all. The syncing is macOS's problem, and macOS is better at it. To hide a
+calendar from Drift, uncheck it in Calendar.app.
+
+If you want to confirm what EventKit sees from a terminal:
+
+```
+./tools/list-calendars.sh
+```
+
+It prints every account, its type, its calendars and how many events are in the next 24
+hours. Run it in **Terminal.app** — it needs to show a Calendars permission prompt, which
+cannot appear from a non-interactive shell.
+
+### When Drift and your calendar disagree
+
+If Drift says nothing is on your calendar and your calendar says otherwise, there are only
+three possible causes, and they need different fixes: the account is not in Calendar.app at
+all, the account is there but the event has not synced, or the event is there and one of
+Drift's own rules dropped it. Rather than guess, turn on the calendar dump:
+
+```
+touch ~/Library/Application\ Support/Drift/.debug-calendar
+open build/Drift.app
+cat ~/Library/Application\ Support/Drift/calendar-debug.txt
+```
+
+Drift then writes, on every calendar read, exactly what EventKit handed it: each account and
+its calendars, every event in ±24h with its dates, all-day flag, status and your RSVP, and a
+per-event verdict in Drift's own terms — "all-day — ignored by design", "has not started
+yet", "IN PROGRESS — eligible to be your status". The report ends with the answer the UI is
+showing, so a disagreement between the two is visible in one file.
+
+Delete the marker file to turn it off. Nothing is written without it.
+
+Note that `./build.sh` re-signs the app ad-hoc, which changes its code identity — so macOS
+treats a freshly built Drift as a new app and **asks for Calendar permission again**. That is
+expected after a rebuild, not a bug.
+
 How it decides:
 
 - Only a meeting **actually in progress** counts.
@@ -228,6 +275,7 @@ Sources/
 tools/
   saver-loadtest.swift        loads the .saver the way macOS does; renders frames
   render-ui.sh                renders the app's views offscreen
+  list-calendars.sh           prints the calendar accounts EventKit can see
   verify-end-to-end.sh        app -> status.json -> .saver, using the real binaries
 ```
 

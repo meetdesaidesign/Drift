@@ -57,7 +57,7 @@ final class DriftController: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.store.source == .calendar else { return }
-                Task { await self.store.syncCalendar() }
+                Task { await self.syncCalendar() }
             }
         }
 
@@ -77,7 +77,7 @@ final class DriftController: ObservableObject {
             if store.source == .calendar, calendar.authorizationStatus == .notDetermined {
                 await calendar.requestAccess()
             }
-            await store.syncCalendar()
+            await syncCalendar()
         }
     }
 
@@ -85,7 +85,7 @@ final class DriftController: ObservableObject {
     func requestCalendarAccess() {
         Task {
             await calendar.requestAccess()
-            await store.syncCalendar()
+            await syncCalendar()
         }
     }
 
@@ -95,8 +95,20 @@ final class DriftController: ObservableObject {
             if calendar.authorizationStatus == .notDetermined {
                 await calendar.requestAccess()
             }
-            await store.syncCalendar()
+            await syncCalendar()
         }
+    }
+
+    /// Re-read now, from the popover or Settings.
+    func checkCalendarNow() {
+        Task { await syncCalendar() }
+    }
+
+    /// One place every sync goes through, so the opt-in diagnostics dump always reflects
+    /// the read that just happened. See `CalendarDiagnostics`.
+    private func syncCalendar() async {
+        await store.syncCalendar()
+        CalendarDiagnostics.writeIfEnabled(using: calendar)
     }
 
     /// Opens the Calendars pane of Privacy & Security, for when access was denied and only
@@ -122,7 +134,7 @@ final class DriftController: ObservableObject {
     /// sync before Drift begins displaying.
     func showDrift() {
         Task {
-            await store.syncCalendar()
+            await syncCalendar()
             store.publish()
             presenter.show(display: store.currentDisplay)
             isShowingDrift = true

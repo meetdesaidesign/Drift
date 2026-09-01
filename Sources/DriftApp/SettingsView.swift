@@ -6,7 +6,14 @@ struct SettingsView: View {
     @ObservedObject var controller: DriftController
     @EnvironmentObject var store: StatusStore
 
-    @State private var selection: Tab = .general
+    @State private var selection: Tab
+
+    /// `initialTab` exists for tools/render-ui.swift, which otherwise has no way to reach
+    /// a pane other than General — the tab is local state. The app always uses the default.
+    init(controller: DriftController, initialTab: Tab = .general) {
+        self.controller = controller
+        self._selection = State(initialValue: initialTab)
+    }
 
     enum Tab: String, CaseIterable, Identifiable {
         case general = "General"
@@ -155,6 +162,10 @@ private struct CalendarSettings: View {
 
     @ObservedObject var controller: DriftController
     @EnvironmentObject var store: StatusStore
+    /// The calendar accounts Drift can see. Read straight from the client rather than
+    /// through the store, so `StatusStore` stays EventKit-free — see the note on its
+    /// `fetchEvents` dependency.
+    @State private var accounts: [CalendarAccountInfo] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -167,7 +178,7 @@ private struct CalendarSettings: View {
                     if store.isSyncing { ProgressView().controlSize(.small) }
                 }
 
-                Text("Drift reads your Mac's Calendar directly. Nothing leaves this machine: there is no account, no token and no network request anywhere in Drift.")
+                Text("Drift reads whatever is in your Mac's Calendar — including accounts Calendar.app syncs, such as Google, iCloud or Exchange. Drift itself has no account, no token and makes no network request; the syncing is macOS's own.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -178,7 +189,7 @@ private struct CalendarSettings: View {
                 case .denied:
                     Button("Open Privacy & Security…") { controller.openCalendarPrivacySettings() }
                 case .authorized, .failing:
-                    Button("Check now") { Task { await store.syncCalendar() } }
+                    Button("Check now") { controller.checkCalendarNow() }
                         .disabled(store.isSyncing)
                 }
 
@@ -187,6 +198,39 @@ private struct CalendarSettings: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Section("Accounts") {
+                if accounts.isEmpty {
+                    Text(accountsEmptyMessage)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(accounts) { account in
+                            HStack(spacing: 6) {
+                                Text(account.title)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                // iCloud names itself "iCloud", so the badge would just
+                                // repeat the title.
+                                if account.kind.localizedCaseInsensitiveCompare(account.title) != .orderedSame {
+                                    Text(account.kind)
+                                        .font(.system(size: 10, weight: .medium))
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1)
+                                        .background(Capsule().fill(.quaternary))
+                                }
+                                Spacer(minLength: 8)
+                                Text("\(account.calendarCount) calendar\(account.calendarCount == 1 ? "" : "s")")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -233,6 +277,30 @@ private struct CalendarSettings: View {
             Spacer()
         }
         .padding(20)
+        .task(id: accountsRefreshKey) { await loadAccounts() }
+    }
+
+    /// Re-read the accounts whenever access changes or a sync lands, which is when the
+    /// list could actually have changed.
+    private var accountsRefreshKey: String {
+        "\(String(describing: store.calendarAccess))|\(String(describing: store.lastSyncDate))"
+    }
+
+    private func loadAccounts() async {
+        // `refreshSourcesIfNecessary` can touch the calendar database, so keep it off the
+        // main actor. The client is Sendable; the controller is not, so grab the client
+        // here rather than inside the task.
+        let client = controller.calendar
+        accounts = await Task.detached { client.accounts() }.value
+    }
+
+    private var accountsEmptyMessage: String {
+        switch store.calendarAccess {
+        case .notDetermined, .denied:
+            return "Grant Calendar access to see which accounts Drift can read."
+        case .authorized, .failing:
+            return "No calendar accounts found. Add one — Google included — in System Settings › Internet Accounts, and it will appear here."
+        }
     }
 
     static let behaviourNotes: [String] = [
@@ -241,6 +309,7 @@ private struct CalendarSettings: View {
         "All-day events and meetings you have declined are ignored.",
         "When meetings overlap, the one ending soonest wins.",
         "An emoji is inferred from the event title — lunch, calls, focus blocks and so on — falling back to 🗓️.",
+        "Every calendar in every account is read. To hide one, uncheck it in Calendar.app.",
         "Drift re-checks every two minutes, and immediately whenever your calendar changes.",
         "Turn on private mode in General if you would rather not have meeting titles on screen.",
     ]

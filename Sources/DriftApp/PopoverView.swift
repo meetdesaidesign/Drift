@@ -191,10 +191,10 @@ struct PopoverView: View {
             if !saverInstallation.isSelected {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
                     Text(saverInstallation.isInstalled
-                         ? "Drift isn’t your selected screensaver."
+                         ? "Pick “Back Soon” as your screensaver — not “Drift”, which is Apple’s."
                          : "Drift’s screensaver isn’t installed.")
                     if saverInstallation.isInstalled {
-                        Button("Choose it") {
+                        Button("Open") {
                             dismiss()
                             controller.openScreenSaverSettings()
                         }

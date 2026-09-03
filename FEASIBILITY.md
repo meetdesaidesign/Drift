@@ -114,9 +114,16 @@ grant myself.
    choice in `~/Library/Application Support/com.apple.wallpaper/Store/Index.plist`, a
    binary plist of provider records. Writing to it by hand would mean editing your
    wallpaper configuration, so `install-saver.sh` stops at installing the bundle and
-   restarting `WallpaperAgent`. Drift appears under **Other**. macOS does not enumerate
-   `~/Library/Screen Savers` until that pane is opened, which is why nothing referenced
-   `Drift.saver` in the wallpaper store immediately after installing.
+   restarting `WallpaperAgent`. It appears under **Other**. macOS does not enumerate
+   `~/Library/Screen Savers` until that pane is opened, which is why nothing referenced the
+   bundle in the wallpaper store immediately after installing.
+
+   This cost a round trip in practice. The bundle was originally called `Drift.saver`, and
+   macOS ships `/System/Library/ExtensionKit/Extensions/Drift.appex` — also displayed as
+   "Drift", and listed in the same **Other** section. Two identically named entries, one of
+   them ours, five of ten items hidden behind "Show All": the wrong one gets picked, and the
+   result is a screensaver that draws something perfectly normal while knowing nothing about
+   your status. The bundle is now called `Back Soon.saver`.
 2. **Starting, exiting, locking and waking.** Needs a real screensaver activation.
    This also covers the one link in **Start Drift** that cannot be settled by reading code:
    whether launching `/System/Library/CoreServices/ScreenSaverEngine.app` still activates

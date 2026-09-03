@@ -1,14 +1,18 @@
 #!/bin/bash
 #
-# Installs Drift.saver into ~/Library/Screen Savers (per-user, no admin rights needed).
-# After this, pick Drift in System Settings > Screen Saver — it appears under "Other".
+# Installs Drift's screensaver into ~/Library/Screen Savers (per-user, no admin rights
+# needed). After this, pick "Back Soon" in System Settings > Screen Saver — it appears
+# under "Other".
+#
+# It is called "Back Soon" and not "Drift" because macOS ships its own screensaver called
+# Drift, listed in that same section. Two entries called "Drift" cannot be told apart.
 #
 set -euo pipefail
 cd "$(dirname "$0")"
 
-SRC="build/Drift.saver"
+SRC="build/Back Soon.saver"
 DEST_DIR="$HOME/Library/Screen Savers"
-DEST="$DEST_DIR/Drift.saver"
+DEST="$DEST_DIR/Back Soon.saver"
 
 if [ ! -d "$SRC" ]; then
   echo "error: $SRC not found — run ./build.sh first" >&2
@@ -24,7 +28,9 @@ if pgrep -q legacyScreenSaver; then
   killall legacyScreenSaver 2>/dev/null || true
 fi
 
-rm -rf "$DEST"
+# Any earlier install called Drift.saver has to go, or the picker keeps showing a stale
+# duplicate next to Apple's Drift.
+rm -rf "$DEST" "$DEST_DIR/Drift.saver"
 cp -R "$SRC" "$DEST"
 echo "==> Installed $DEST"
 
@@ -33,4 +39,4 @@ echo "==> Installed $DEST"
 killall WallpaperAgent 2>/dev/null && echo "==> Restarted WallpaperAgent" || true
 
 echo
-echo "Now open System Settings > Screen Saver and choose Drift (under \"Other\")."
+echo "Now open System Settings > Screen Saver and choose \"Back Soon\" (under \"Other\")."

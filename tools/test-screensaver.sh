@@ -16,7 +16,7 @@
 set -euo pipefail
 
 ENGINE="/System/Library/CoreServices/ScreenSaverEngine.app"
-SAVER="$HOME/Library/Screen Savers/Drift.saver"
+SAVER="$HOME/Library/Screen Savers/Back Soon.saver"
 INDEX="$HOME/Library/Application Support/com.apple.wallpaper/Store/Index.plist"
 
 bold() { printf '\033[1m%s\033[0m\n' "$1"; }
@@ -25,16 +25,17 @@ warn() { printf '  \033[33m!\033[0m %s\n' "$1"; }
 
 bold "Screensaver"
 if [ -d "$ENGINE" ]; then ok "ScreenSaverEngine is present"; else warn "ScreenSaverEngine is missing"; fi
-if [ -d "$SAVER" ]; then ok "Drift.saver is installed"; else warn "Drift.saver is not installed — run ./install-saver.sh"; fi
+if [ -d "$SAVER" ]; then ok "Back Soon.saver is installed"; else warn "Back Soon.saver is not installed — run ./install-saver.sh"; fi
 
-# Substring match on the path, not the name: macOS ships its own screensaver also called
-# Drift, at /System/Library/ExtensionKit/Extensions/Drift.appex, which must not count.
-if [ -f "$INDEX" ] && grep -qa "Screen Savers/Drift.saver" "$INDEX"; then
-    ok "Drift.saver is the selected screensaver"
+# Match on this bundle's own path. macOS ships a screensaver called Drift of its own, at
+# /System/Library/ExtensionKit/Extensions/Drift.appex, and it is listed in the very same
+# "Other" section — which is why this one is called "Back Soon".
+if [ -f "$INDEX" ] && grep -qa "Screen Savers/Back Soon.saver" "$INDEX"; then
+    ok "Back Soon is the selected screensaver"
 elif [ -f "$INDEX" ] && grep -qa "ExtensionKit/Extensions/Drift.appex" "$INDEX"; then
-    warn "the selected screensaver is Apple's built-in Drift, not this one — pick Drift under 'Other' in System Settings > Screen Saver"
+    warn "the selected screensaver is Apple's Drift, not this one — under 'Other' in System Settings > Screen Saver, choose 'Back Soon'"
 else
-    warn "Drift.saver does not appear to be selected — pick it under 'Other' in System Settings > Screen Saver"
+    warn "Back Soon does not appear to be selected — pick it under 'Other' in System Settings > Screen Saver"
 fi
 
 echo

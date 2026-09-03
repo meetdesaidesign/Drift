@@ -36,7 +36,7 @@ APP_SOURCES=(Sources/DriftApp/*.swift)
 SAVER_SOURCES=(Sources/DriftSaver/*.swift)
 
 APP_BUNDLE="$BUILD_DIR/Drift.app"
-SAVER_BUNDLE="$BUILD_DIR/Drift.saver"
+SAVER_BUNDLE="$BUILD_DIR/Back Soon.saver"
 
 say() { printf '\033[1m==>\033[0m %s\n' "$1"; }
 
@@ -56,9 +56,11 @@ cp Sources/DriftApp/Info.plist "$APP_BUNDLE/Contents/Info.plist"
 printf 'APPL????' > "$APP_BUNDLE/Contents/PkgInfo"
 plutil -lint "$APP_BUNDLE/Contents/Info.plist" > /dev/null
 
-# ---------------------------------------------------------------- Drift.saver
+# ------------------------------------------------------------- Back Soon.saver
 
-say "Compiling Drift.saver ($CONFIG)"
+# Named "Back Soon" rather than "Drift" so it cannot be confused with the screensaver
+# macOS ships under that same name in the same list. See Sources/DriftSaver/Info.plist.
+say "Compiling Back Soon.saver ($CONFIG)"
 mkdir -p "$SAVER_BUNDLE/Contents/MacOS" "$SAVER_BUNDLE/Contents/Resources"
 # -emit-library with -Xlinker -bundle produces a true MH_BUNDLE, which is what
 # NSBundle/legacyScreenSaver expects to dlopen.

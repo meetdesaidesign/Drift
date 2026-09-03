@@ -11,7 +11,13 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Drift</string>
+	<string>Back Soon</string>
+	<!-- Deliberately not "Drift". macOS ships its own screensaver called Drift
+	     (/System/Library/ExtensionKit/Extensions/Drift.appex), it is listed in the same
+	     "Other" section of System Settings, and two identically named entries there is
+	     a trap with no way out: you cannot tell which one you picked. -->
+	<key>CFBundleDisplayName</key>
+	<string>Back Soon</string>
 	<key>CFBundlePackageType</key>
 	<string>BNDL</string>
 	<key>CFBundleShortVersionString</key>

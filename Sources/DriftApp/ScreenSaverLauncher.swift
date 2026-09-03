@@ -81,7 +81,7 @@ enum ScreenSaverLauncher {
     }
 }
 
-/// Where `Drift.saver` stands with macOS: installed, and selected.
+/// Where Drift's screensaver stands with macOS: installed, and selected.
 ///
 /// Selection cannot be set programmatically — it lives in a binary plist inside
 /// `~/Library/Application Support/com.apple.wallpaper/`, and writing it by hand would mean
@@ -92,7 +92,7 @@ struct ScreenSaverInstallation: Equatable {
     var isInstalled: Bool
     var isSelected: Bool
 
-    static let installedPath = ("~/Library/Screen Savers/Drift.saver" as NSString).expandingTildeInPath
+    static let installedPath = ("~/Library/Screen Savers/Back Soon.saver" as NSString).expandingTildeInPath
     private static let wallpaperIndexPath =
         ("~/Library/Application Support/com.apple.wallpaper/Store/Index.plist" as NSString).expandingTildeInPath
 
@@ -106,19 +106,19 @@ struct ScreenSaverInstallation: Equatable {
     /// The file is a binary plist whose schema is Apple's and undocumented, and it is read
     /// only to decide which of two sentences to show — so a tolerant check that can be
     /// wrong in the harmless direction beats a strict parse that breaks on the next macOS
-    /// release. Note this matches the path of *this* saver, not the name: macOS ships its
-    /// own screensaver also called Drift, at a `/System` path, which must not count.
+    /// release. It matches this bundle's own path: macOS ships a screensaver called Drift
+    /// too, and being sure which one is selected is the entire point of this check.
     private static func selectionMentionsDrift() -> Bool {
         guard let data = FileManager.default.contents(atPath: wallpaperIndexPath) else { return false }
-        return data.range(of: Data("Screen Savers/Drift.saver".utf8)) != nil
+        return data.range(of: Data("Screen Savers/Back Soon.saver".utf8)) != nil
     }
 
     var summary: String {
         switch (isInstalled, isSelected) {
         case (false, _):
-            return "Drift’s screensaver is not installed. Run ./install-saver.sh, then choose Drift in System Settings › Screen Saver."
+            return "Drift’s screensaver is not installed. Run ./install-saver.sh, then choose “Back Soon” in System Settings › Screen Saver."
         case (true, false):
-            return "Drift is installed but is not the selected screensaver. Choose it under “Other” in System Settings › Screen Saver — macOS ships its own screensaver also called Drift, so pick the one under Other."
+            return "Drift’s screensaver is installed but not selected. In System Settings › Screen Saver, under “Other”, choose “Back Soon” — not “Drift”, which is Apple’s own."
         case (true, true):
             return "Drift.saver is installed and selected."
         }

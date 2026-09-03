@@ -137,14 +137,22 @@ passed — ten more minutes always means ten minutes from here.
 ./install-saver.sh
 ```
 
-That copies `Drift.saver` into `~/Library/Screen Savers` (per-user, no admin password) and
-restarts `WallpaperAgent` so macOS notices it.
+That copies `Back Soon.saver` into `~/Library/Screen Savers` (per-user, no admin password),
+removes any earlier `Drift.saver` install, and restarts `WallpaperAgent` so macOS notices
+it.
 
-Then **open System Settings › Screen Saver and choose Drift**, which appears under
+Then **open System Settings › Screen Saver and choose "Back Soon"**, which appears under
 **Other**. This step cannot be scripted on macOS 26 — the choice lives in a binary plist
 inside `~/Library/Application Support/com.apple.wallpaper/`, and writing to it by hand would
 mean rewriting your wallpaper configuration. Settings › Open macOS Screen Saver Settings
-takes you there, and Drift says so in Settings if the selection is missing.
+takes you there, and the popover says so under Start Drift if the selection is missing.
+
+**Why the screensaver is called "Back Soon" and not "Drift".** macOS ships a screensaver of
+its own called Drift — `/System/Library/ExtensionKit/Extensions/Drift.appex`, the colourful
+moiré one — and it is listed in the same **Other** section. Two entries called "Drift" in
+one list cannot be told apart, and picking the wrong one gives you an animation that knows
+nothing about your status, with nothing on screen to say so. So this one carries a name
+Apple does not use.
 
 The screensaver reads whatever Drift last published to
 `~/Library/Application Support/Drift/status.json`. It reaches no network and reads nothing
@@ -185,7 +193,7 @@ popover.
 **The screensaver is the only way to do this**, and it is worth being precise about why. An
 ordinary app window runs in your logged-in session, so while it is up the Mac is by
 definition *not* locked. The screensaver is the other way round: macOS draws it *over* a
-locked session, so `Drift.saver` goes on showing your status while the Mac is genuinely
+locked session, so it goes on showing your status while the Mac is genuinely
 locked behind it. There is no third option — no app can draw on the macOS lock screen
 itself, because `loginwindow` renders it in a session of its own.
 
@@ -198,21 +206,20 @@ here, from a terminal and without launching the app:
 ./tools/test-screensaver.sh
 ```
 
-That reports everything that has to be true: the engine is present, `Drift.saver` is
+That reports everything that has to be true: the engine is present, the screensaver is
 installed *and selected*, whether a password is required and after how long, and when the
 display sleeps. `--start` also starts the screensaver for one second.
 
-If `Drift.saver` is installed but not selected, the popover says so under Start Drift,
+If the screensaver is installed but not selected, the popover says so under Start Drift,
 with a link straight to the right pane — because otherwise Start Drift shows somebody
 else's screensaver and your status never appears anywhere.
 
 ### Two things that will make this look broken
 
-**macOS ships its own screensaver also called Drift**, at
-`/System/Library/ExtensionKit/Extensions/Drift.appex`. Picking the wrong one in System
-Settings gives you Apple's abstract lines and no status, with nothing to indicate a mix-up.
-Drift's is the one under **Other**; `tools/test-screensaver.sh` tells the two apart by path
-rather than by name.
+**Picking Apple's Drift instead of "Back Soon".** They used to have the same name in the
+same list; this one was renamed for exactly that reason. If the screensaver you get is a
+colourful moiré pattern, that is Apple's. `tools/test-screensaver.sh` names which one is
+selected, by path rather than by name.
 
 **If the display sleeps before the screensaver starts, nobody ever sees your status.** The
 two timers are independent, and the screensaver needs a lit screen. Display sleep has to be
@@ -276,7 +283,7 @@ time, which is the one case where a session ends without Drift's help.
 #    or remove it manually afterwards in System Settings > General > Login Items.
 
 # 2. Remove the screensaver, and pick a different screensaver in System Settings first.
-rm -rf ~/Library/"Screen Savers"/Drift.saver
+rm -rf ~/Library/"Screen Savers"/"Back Soon.saver"
 
 # 3. Remove the app.
 rm -rf /Applications/Drift.app ~/Applications/Drift.app   # wherever you put it
@@ -296,8 +303,8 @@ above, and no permissions to revoke.
 
 ```
 Package.swift                 DriftCore + its tests (this is what `swift test` runs)
-build.sh                      builds Drift.app and Drift.saver with swiftc
-install-saver.sh              installs Drift.saver into ~/Library/Screen Savers
+build.sh                      builds Drift.app and Back Soon.saver with swiftc
+install-saver.sh              installs Back Soon.saver into ~/Library/Screen Savers
 Sources/
   DriftCore/                  pure Foundation, no AppKit — the testable half
     DriftSession.swift           the model, the display rule, and the wording
@@ -313,10 +320,10 @@ Sources/
     PopoverView.swift            the setup form and the active session
     DriftController.swift        starting, ending, and noticing you came back
     SettingsView.swift           five rows
-    ScreenSaverLauncher.swift    starting the screensaver; is Drift.saver selected?
+    ScreenSaverLauncher.swift    starting the screensaver; is ours the selected one?
     LaunchAtLogin.swift          SMAppService
   DriftSaver/
-    DriftScreenSaverView.swift   the ScreenSaverView subclass
+    DriftScreenSaverView.swift   the ScreenSaverView subclass, built as Back Soon.saver
 tools/
   menubar-probe.sh            asks the real app where its status item is; does the popover open?
   saver-loadtest.swift        loads the .saver the way macOS does; renders frames

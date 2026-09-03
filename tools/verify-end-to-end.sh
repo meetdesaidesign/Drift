@@ -85,7 +85,7 @@ fi
 
 echo "==> 2. The built .saver renders a live session"
 write_payload 1800
-if ./build/saver-loadtest build/Drift.saver "$OUT/e2e-live" | grep -q "ALL CHECKS PASSED"; then
+if ./build/saver-loadtest "build/Back Soon.saver" "$OUT/e2e-live" | grep -q "ALL CHECKS PASSED"; then
   echo "  PASS  .saver loaded and rendered the published status"
 else
   echo "  FAIL  .saver load test failed"; FAILED=1
@@ -93,7 +93,7 @@ fi
 
 echo "==> 3. A session left behind by a crash is not believed forever"
 write_payload -46800   # 13 hours past the return time
-if ./build/saver-loadtest build/Drift.saver "$OUT/e2e-stale" | grep -q "ALL CHECKS PASSED"; then
+if ./build/saver-loadtest "build/Back Soon.saver" "$OUT/e2e-stale" | grep -q "ALL CHECKS PASSED"; then
   echo "  PASS  .saver loaded and rendered the stale payload"
 else
   echo "  FAIL  .saver load test failed on the stale payload"; FAILED=1

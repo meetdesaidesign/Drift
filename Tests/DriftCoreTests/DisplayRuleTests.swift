@@ -2,112 +2,166 @@ import Foundation
 import Testing
 @testable import DriftCore
 
-@Suite("Display rules: expiry, blanks and private mode")
+// Note: these tests use swift-testing rather than XCTest because this Mac has
+// Command Line Tools only, and XCTest.framework ships with Xcode.
+
+@Suite("Display rules")
 struct DisplayRuleTests {
 
     let now = Date(timeIntervalSince1970: 1_700_000_000)
 
-    private func settings(
-        fallback: String = DriftSettings.defaultFallbackText,
-        showReturnTime: Bool = true,
-        privateMode: Bool = false
-    ) -> DriftSettings {
+    private func settings(showReturnTime: Bool = true) -> DriftSettings {
         var s = DriftSettings()
-        s.fallbackText = fallback
         s.showReturnTime = showReturnTime
-        s.privateMode = privateMode
         return s
     }
 
-    @Test("An expired status is never displayed")
-    func expiredIsNeverShown() {
-        let status = DriftStatus(
-            text: "Out for lunch", emoji: "🍜",
-            expiresAt: now.addingTimeInterval(-1), source: .custom
-        )
-        let display = resolveDisplay(status: status, now: now, settings: settings())
-        #expect(display.text == "Away from desk")
-        #expect(display.emoji == "")
-        #expect(display.subtitle == nil)
-    }
-
-    @Test("Expiry is inclusive — the exact expiry instant is already expired")
-    func expiryIsInclusive() {
-        let status = DriftStatus(text: "On a call", emoji: "📞", expiresAt: now, source: .custom)
-        #expect(status.isExpired(at: now))
-        #expect(resolveDisplay(status: status, now: now, settings: settings()).text == "Away from desk")
-    }
-
-    @Test("An unexpired status is displayed as written")
-    func unexpiredIsShown() {
-        let status = DriftStatus(
-            text: "Out for lunch", emoji: "🍜",
-            returnTime: now.addingTimeInterval(1800),
-            expiresAt: now.addingTimeInterval(3600),
-            source: .custom
-        )
-        let display = resolveDisplay(status: status, now: now, settings: settings())
+    @Test("A running session is displayed as written, with its return time")
+    func sessionIsShown() {
+        let session = DriftSession(text: "Out for lunch", returnTime: now.addingTimeInterval(1800), startedAt: now)
+        let display = resolveDisplay(session: session, settings: settings(), now: now)
         #expect(display.text == "Out for lunch")
-        #expect(display.emoji == "🍜")
-        #expect(display.subtitle?.hasPrefix("Back around") == true)
+        #expect(display.returnTime == now.addingTimeInterval(1800))
     }
 
-    @Test("A status with no expiry never expires")
-    func noExpiryNeverExpires() {
-        let status = DriftStatus(text: "Focus time", emoji: "🎧", source: .custom)
-        #expect(resolveDisplay(status: status, now: .distantFuture, settings: settings()).text == "Focus time")
-    }
-
-    @Test("No status at all falls back")
-    func nilStatusFallsBack() {
-        #expect(resolveDisplay(status: nil, now: now, settings: settings()).text == "Away from desk")
-    }
-
-    @Test("A blank status falls back — this is an untitled, unmatched event")
-    func blankStatusFallsBack() {
-        let blank = DriftStatus(text: "   ", emoji: "🍜", source: .calendar)
-        #expect(resolveDisplay(status: blank, now: now, settings: settings()).text == "Away from desk")
-    }
-
-    @Test("Private mode always shows the fallback, never the real status")
-    func privateModeHidesEverything() {
-        let status = DriftStatus(
-            text: "Therapy appointment", emoji: "🩺",
-            returnTime: now.addingTimeInterval(3600), source: .custom
-        )
-        let display = resolveDisplay(status: status, now: now, settings: settings(privateMode: true))
+    @Test("No session shows 'Away from desk' and no return time")
+    func noSessionFallsBack() {
+        let display = resolveDisplay(session: nil, settings: settings(), now: now)
         #expect(display.text == "Away from desk")
-        #expect(display.emoji == "")
-        #expect(display.subtitle == nil)
+        #expect(display.returnTime == nil)
     }
 
-    @Test("A custom fallback text is respected everywhere the fallback is used")
-    func customFallback() {
-        let s = settings(fallback: "Not here")
-        #expect(resolveDisplay(status: nil, now: now, settings: s).text == "Not here")
-        let expired = DriftStatus(text: "x", expiresAt: now.addingTimeInterval(-5), source: .custom)
-        #expect(resolveDisplay(status: expired, now: now, settings: s).text == "Not here")
+    @Test("A blank session is treated as no session at all")
+    func blankSessionFallsBack() {
+        let session = DriftSession(text: "   ", returnTime: now.addingTimeInterval(600), startedAt: now)
+        #expect(session.isBlank)
+        #expect(resolveDisplay(session: session, settings: settings(), now: now).text == "Away from desk")
     }
 
-    @Test("Turning off the return time hides the subtitle but keeps the status")
+    @Test("Turning off the return time hides it but keeps the status")
     func returnTimeToggle() {
-        let status = DriftStatus(
-            text: "Stepped out", emoji: "🚶",
-            returnTime: now.addingTimeInterval(900), source: .custom
-        )
-        #expect(resolveDisplay(status: status, now: now, settings: settings(showReturnTime: false)).subtitle == nil)
-        #expect(resolveDisplay(status: status, now: now, settings: settings(showReturnTime: true)).subtitle != nil)
+        let session = DriftSession(text: "On a break", returnTime: now.addingTimeInterval(900), startedAt: now)
+        #expect(resolveDisplay(session: session, settings: settings(showReturnTime: false), now: now).returnTime == nil)
+        #expect(resolveDisplay(session: session, settings: settings(showReturnTime: false), now: now).text == "On a break")
+        #expect(resolveDisplay(session: session, settings: settings(), now: now).returnTime != nil)
     }
 
-    @Test("The shared payload re-checks expiry itself, in case Drift is not running")
-    func payloadReExpires() {
-        let display = DisplayStatus(
-            emoji: "🍜", text: "Out for lunch", subtitle: "Back around 2:30 PM",
-            expiresAt: now.addingTimeInterval(60), updatedAt: now
-        )
-        let payload = SharedPayload(display: display, fallbackText: "Away from desk", writtenAt: now)
-        #expect(payload.displayNow(now).text == "Out for lunch")
-        #expect(payload.displayNow(now.addingTimeInterval(120)).text == "Away from desk")
-        #expect(payload.displayNow(now.addingTimeInterval(120)).emoji == "")
+    @Test("A session that has run past its return time is still a session")
+    func overdueSessionKeepsShowing() {
+        let session = DriftSession(text: "Out for lunch", returnTime: now.addingTimeInterval(-600), startedAt: now)
+        #expect(session.isOverdue(at: now))
+        // The estimate passing is not a reason to stop showing the status.
+        #expect(resolveDisplay(session: session, settings: settings(), now: now).text == "Out for lunch")
+    }
+}
+
+@Suite("Wording")
+struct FormatTests {
+
+    /// The calendar is pinned to UTC so "is it still today?" has a fixed answer here,
+    /// whatever the machine's time zone is.
+    private let now = Date(timeIntervalSince1970: 1_700_000_000)
+    private var calendar: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "UTC")!
+        return c
+    }
+
+    @Test("A future return time reads 'Back at' in the popover and 'Back around' on screen")
+    func futureReturnTime() {
+        let back = now.addingTimeInterval(1800)
+        #expect(DriftFormat.backAt(back, now: now, calendar: calendar).hasPrefix("Back at "))
+        #expect(DriftFormat.backAround(back, now: now, calendar: calendar).hasPrefix("Back around "))
+    }
+
+    @Test("A return time that has passed is replaced, never shown as an outdated time")
+    func overdueWording() {
+        let past = now.addingTimeInterval(-60)
+        #expect(DriftFormat.backAt(past, now: now, calendar: calendar) == "Expected back shortly")
+        #expect(DriftFormat.backAround(past, now: now, calendar: calendar) == "Expected back shortly")
+        // The exact instant counts as passed — a return time of "now" is not news.
+        #expect(DriftFormat.backAround(now, now: now, calendar: calendar) == "Expected back shortly")
+    }
+
+    @Test("A return time on another day carries the weekday, so it cannot be misread")
+    func otherDayCarriesWeekday() {
+        let tomorrow = now.addingTimeInterval(20 * 60 * 60)
+        let line = DriftFormat.backAround(tomorrow, now: now, calendar: calendar)
+        #expect(line.contains(tomorrow.formatted(.dateTime.weekday(.abbreviated))))
+    }
+}
+
+@Suite("Durations")
+struct DurationTests {
+
+    private var calendar: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "UTC")!
+        return c
+    }
+    /// Mid-morning, so "3:30 PM" is still ahead and "8:00 AM" is behind.
+    private var now: Date {
+        calendar.date(from: DateComponents(year: 2024, month: 6, day: 12, hour: 10, minute: 15))!
+    }
+
+    @Test("The chips are the seven the popover shows, labelled short")
+    func chipLabels() {
+        #expect(DurationChoice.presets.count == 7)
+        let labels = DurationChoice.presets.map { $0.label(now: now, calendar: calendar) }
+        #expect(labels == ["5m", "10m", "15m", "20m", "30m", "45m", "1 hr"])
+    }
+
+    @Test("A minutes choice returns that many minutes from now")
+    func minutesFromNow() {
+        #expect(DurationChoice.minutes(20).returnTime(from: now) == now.addingTimeInterval(1200))
+    }
+
+    @Test("A picked time later today is that time today")
+    func clockLaterToday() {
+        let back = DurationChoice.clock(hour: 15, minute: 30).returnTime(from: now, calendar: calendar)
+        #expect(calendar.dateComponents([.hour, .minute], from: back).hour == 15)
+        #expect(calendar.isDate(back, inSameDayAs: now))
+    }
+
+    @Test("A picked time that has already gone by today means tomorrow, not a time machine")
+    func clockAlreadyPassed() {
+        let back = DurationChoice.clock(hour: 8, minute: 0).returnTime(from: now, calendar: calendar)
+        #expect(back > now)
+        #expect(calendar.isDate(back, inSameDayAs: now) == false)
+        #expect(calendar.dateComponents([.hour], from: back).hour == 8)
+    }
+
+    @Test("A picked time round-trips through the date the picker hands back")
+    func clockFromDate() {
+        let picked = calendar.date(bySettingHour: 16, minute: 45, second: 0, of: now)!
+        #expect(DurationChoice.clock(from: picked, calendar: calendar) == .clock(hour: 16, minute: 45))
+    }
+}
+
+@Suite("Statuses")
+struct StatusChoiceTests {
+
+    @Test("The four presets are fixed, and each has its own screen wording")
+    func presets() {
+        #expect(StatusPreset.all.map(\.label) == ["Lunch", "Break", "Meeting", "Away"])
+        #expect(StatusChoice.preset("lunch").text == "Out for lunch")
+        #expect(StatusChoice.preset("meeting").text == "In a meeting")
+        #expect(StatusChoice.preset("nonsense").text == nil)
+    }
+
+    @Test("A custom message is trimmed, and an empty one is not a status")
+    func customMessages() {
+        #expect(StatusChoice.custom("  Waiting for a delivery  ").text == "Waiting for a delivery")
+        #expect(StatusChoice.custom("    ").text == nil)
+        #expect(StatusChoice.custom("").text == nil)
+    }
+
+    @Test("A custom message is capped at a length that still reads across a room")
+    func customLimit() {
+        let long = String(repeating: "a", count: 200)
+        #expect(StatusChoice.sanitise(custom: long).count == StatusChoice.customLimit)
+        // Cut on grapheme boundaries, so a multi-scalar character is never split.
+        let flags = String(repeating: "🇮🇳", count: 60)
+        #expect(StatusChoice.sanitise(custom: flags).count == StatusChoice.customLimit)
     }
 }

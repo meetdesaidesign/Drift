@@ -48,7 +48,7 @@ mkdir -p "$BUILD_DIR"
 say "Compiling Drift.app ($CONFIG)"
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
 swiftc "${COMMON_FLAGS[@]}" \
-  -framework AppKit -framework SwiftUI -framework ServiceManagement -framework EventKit \
+  -framework AppKit -framework SwiftUI -framework ServiceManagement \
   -o "$APP_BUNDLE/Contents/MacOS/Drift" \
   "${CORE_SOURCES[@]}" "${SHARED_SOURCES[@]}" "${APP_SOURCES[@]}"
 

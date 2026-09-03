@@ -27,10 +27,6 @@
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
-	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Drift reads your calendar so it can show the meeting you are currently in as your away status. Nothing leaves this Mac.</string>
-	<key>NSCalendarsUsageDescription</key>
-	<string>Drift reads your calendar so it can show the meeting you are currently in as your away status. Nothing leaves this Mac.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Personal use.</string>
 	<key>NSSupportsAutomaticTermination</key>

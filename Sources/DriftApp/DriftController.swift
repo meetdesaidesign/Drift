@@ -1,180 +1,137 @@
 import AppKit
-import Combine
-import EventKit
 import SwiftUI
 
-/// Wires the store to the things only the app can do: showing Drift full screen, watching
-/// for idle, opening Settings, and reading the Calendar on launch.
+/// Wires the store to the things only the app can do: starting the screensaver, noticing
+/// when you come back, opening Settings, and quitting.
 @MainActor
 final class DriftController: ObservableObject {
 
     let store: StatusStore
-    let calendar: CalendarClient
-    private let presenter = FullScreenPresenter()
-    private let idleMonitor = IdleMonitor()
     private var settingsWindow: NSWindow?
-    private var cancellables: Set<AnyCancellable> = []
-    private var calendarObserver: NSObjectProtocol?
+    private var observers: [NSObjectProtocol] = []
+    private var returnWatch: Task<Void, Never>?
 
-    @Published private(set) var isShowingDrift = false
+    /// Set when Start Drift could not hand over to the screensaver. Shown in the popover
+    /// rather than as an alert — and the session is ended, because a status nothing is
+    /// displaying is not a status.
+    @Published private(set) var startError: String?
 
-    init(existingStore: StatusStore? = nil, calendar: CalendarClient = CalendarClient()) {
-        self.calendar = calendar
-        // Named `existingStore` rather than `store` so it cannot shadow `self.store` in
-        // the rest of this initialiser.
-        self.store = existingStore ?? StatusStore(fetchEvents: { [calendar] in
-            try await calendar.fetchEvents()
-        })
-        let store = self.store
+    init(existingStore: StatusStore? = nil) {
+        // Named `existingStore` rather than `store` so it cannot shadow `self.store`.
+        self.store = existingStore ?? StatusStore()
 
-        presenter.onDismiss = { [weak self] in
-            self?.isShowingDrift = false
-        }
-
-        // Keep a visible Drift screen in step with the status behind it, so an expiring
-        // status flips to "Away from desk" even while it is on screen.
-        store.$currentDisplay
-            .sink { [weak self] display in
-                guard let self, self.presenter.isShowing else { return }
-                self.presenter.update(display: display)
-            }
-            .store(in: &cancellables)
-
-        // Idle activation is opt-in, so react whenever the setting changes.
-        store.$settings
-            .map { ($0.idleActivationEnabled, $0.idleActivationDelay) }
-            .removeDuplicates(by: { $0 == $1 })
-            .sink { [weak self] enabled, delay in
-                self?.configureIdleMonitor(enabled: enabled, delay: delay)
-            }
-            .store(in: &cancellables)
-
-        // Re-read as soon as the calendar database changes, rather than waiting up to two
-        // minutes for the next tick — a meeting that has just been moved or cancelled
-        // should not keep showing.
-        calendarObserver = NotificationCenter.default.addObserver(
-            forName: CalendarClient.didChangeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, self.store.source == .calendar else { return }
-                Task { await self.syncCalendar() }
-            }
-        }
-
-        AppDelegate.controller = self
-        start()
-    }
-
-    /// Called once, at launch. Publishes the current status so the screensaver has
-    /// something to read even before anything is edited, starts the expiry/sync tickers,
-    /// and does the launch-time Calendar read.
-    private func start() {
+        // Publish at launch so the screensaver has something to read even if Drift is
+        // never opened — an idle Mac should say "Away from desk", not show whatever was
+        // left in the file.
         store.publish(force: true)
-        store.startTickers()
+        installReturnObservers()
+    }
+
+    // MARK: Starting and ending
+
+    /// Publishes the status, then hands the screen to the system screensaver.
+    ///
+    /// This is the only path in Drift that leaves the Mac locked, and the order matters.
+    /// `store.start` writes `status.json` synchronously, so by the time the saver's view
+    /// is created the file already holds the status you just picked — publish afterwards
+    /// and Drift comes up showing the previous one until its next poll catches up.
+    ///
+    /// Nothing here touches a security setting. Whether a password is required after the
+    /// screensaver begins, and after how long, belongs to macOS.
+    func startDrift(status: StatusChoice, duration: DurationChoice) {
+        startError = nil
+        guard store.start(status: status, duration: duration) else { return }
+        beginWatchingForReturn()
+
         Task {
-            // Only prompt for Calendar access if the Calendar source is actually in use.
-            // Someone using Drift with custom statuses only should never see the prompt.
-            if store.source == .calendar, calendar.authorizationStatus == .notDetermined {
-                await calendar.requestAccess()
+            do {
+                try await ScreenSaverLauncher.start()
+            } catch {
+                startError = error.localizedDescription
+                endDrift()
             }
-            await syncCalendar()
         }
     }
 
-    /// Asks for Calendar access, then syncs. Called from Settings and the popover.
-    func requestCalendarAccess() {
-        Task {
-            await calendar.requestAccess()
-            await syncCalendar()
-        }
+    /// "+10 min", for when lunch runs long.
+    func extendDrift() {
+        store.extend(byMinutes: 10)
     }
 
-    /// Prompts only if macOS has never asked; otherwise just re-reads.
-    func ensureCalendarAccess() {
-        Task {
-            if calendar.authorizationStatus == .notDetermined {
-                await calendar.requestAccess()
+    func endDrift() {
+        returnWatch?.cancel()
+        returnWatch = nil
+        store.end()
+    }
+
+    // MARK: Noticing that you came back
+
+    /// The screensaver stopping *is* the user returning: macOS ends it on the first key
+    /// or click, and on unlock. Both notifications are watched, and both are cheap.
+    private func installReturnObservers() {
+        for name in ["com.apple.screensaver.didstop", "com.apple.screenIsUnlocked"] {
+            let observer = DistributedNotificationCenter.default().addObserver(
+                forName: Notification.Name(name), object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.store.isActive else { return }
+                    self.endDrift()
+                }
             }
-            await syncCalendar()
+            observers.append(observer)
         }
     }
 
-    /// Re-read now, from the popover or Settings.
-    func checkCalendarNow() {
-        Task { await syncCalendar() }
+    /// A backstop for the notifications above, which are Apple's and undocumented.
+    ///
+    /// It waits until it has actually seen the screensaver running before treating its
+    /// absence as a return — otherwise it would end the session in the second between
+    /// Start Drift and the engine taking the screen.
+    private func beginWatchingForReturn() {
+        returnWatch?.cancel()
+        returnWatch = Task { [weak self] in
+            var sawScreenSaver = false
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                if Task.isCancelled { return }
+                guard let self, self.store.isActive else { return }
+                if ScreenSaverLauncher.isRunning {
+                    sawScreenSaver = true
+                } else if sawScreenSaver {
+                    self.endDrift()
+                    return
+                }
+            }
+        }
     }
 
-    /// One place every sync goes through, so the opt-in diagnostics dump always reflects
-    /// the read that just happened. See `CalendarDiagnostics`.
-    private func syncCalendar() async {
-        await store.syncCalendar()
-        CalendarDiagnostics.writeIfEnabled(using: calendar)
+    // MARK: Lifecycle
+
+    func applicationWillTerminate() {
+        returnWatch?.cancel()
+        returnWatch = nil
+        for observer in observers {
+            DistributedNotificationCenter.default().removeObserver(observer)
+        }
+        observers.removeAll()
+        // Leave the published file idle: with Drift gone, nothing can end a session, so
+        // a live one on disk would tell every later screensaver you were still at lunch.
+        store.end()
     }
 
-    /// Opens the Calendars pane of Privacy & Security, for when access was denied and only
-    /// the user can undo that.
-    func openCalendarPrivacySettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars") else { return }
+    // MARK: Settings and About
+
+    /// Opens System Settings › Screen Saver, where `Drift.saver` has to be chosen by hand
+    /// — that selection lives in a binary plist macOS owns and cannot be scripted.
+    func openScreenSaverSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.ScreenSaver-Settings.extension") else { return }
         NSWorkspace.shared.open(url)
     }
 
-    func applicationWillTerminate() {
-        store.stopTickers()
-        idleMonitor.stop()
-        presenter.hide()
-        if let calendarObserver {
-            NotificationCenter.default.removeObserver(calendarObserver)
-            self.calendarObserver = nil
-        }
+    func showAbout() {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(nil)
     }
-
-    // MARK: Showing Drift
-
-    /// Re-reads the Calendar first, so what appears on screen is as current as it can be —
-    /// sync before Drift begins displaying.
-    func showDrift() {
-        Task {
-            await syncCalendar()
-            store.publish()
-            presenter.show(display: store.currentDisplay)
-            isShowingDrift = true
-        }
-    }
-
-    /// Same screen, but without waiting on the network — this is a look, not a departure.
-    func previewDrift() {
-        store.publish()
-        presenter.show(display: store.currentDisplay)
-        isShowingDrift = true
-    }
-
-    func hideDrift() {
-        presenter.hide()
-        isShowingDrift = false
-    }
-
-    // MARK: Idle
-
-    private func configureIdleMonitor(enabled: Bool, delay: TimeInterval) {
-        guard enabled else {
-            idleMonitor.stop()
-            return
-        }
-        idleMonitor.onIdle = { [weak self] in
-            guard let self, !self.presenter.isShowing else { return }
-            self.store.publish()
-            self.presenter.show(display: self.store.currentDisplay)
-            self.isShowingDrift = true
-        }
-        // The presenter already closes on any input; this is the backstop for the case
-        // where activity happened somewhere the local event monitor could not see it.
-        idleMonitor.onActive = { [weak self] in
-            self?.hideDrift()
-        }
-        idleMonitor.start(threshold: delay)
-    }
-
-    // MARK: Settings
 
     func openSettings() {
         if let settingsWindow {
@@ -184,10 +141,10 @@ final class DriftController: ObservableObject {
         }
 
         let hosting = NSHostingController(rootView: SettingsView(controller: self).environmentObject(store))
+        hosting.sizingOptions = [.preferredContentSize]
         let window = NSWindow(contentViewController: hosting)
         window.title = "Drift Settings"
-        window.styleMask = [.titled, .closable, .miniaturizable]
-        window.setContentSize(NSSize(width: 480, height: 620))
+        window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
         window.center()
         settingsWindow = window
@@ -197,7 +154,6 @@ final class DriftController: ObservableObject {
     }
 
     func quit() {
-        applicationWillTerminate()
         NSApp.terminate(nil)
     }
 }

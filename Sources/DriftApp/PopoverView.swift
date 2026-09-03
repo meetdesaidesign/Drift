@@ -320,8 +320,10 @@ struct PopoverView: View {
     private func start() {
         guard canStart, let status, let duration, !isStarting else { return }
         isStarting = true
-        controller.startDrift(status: status, duration: duration)
+        // Close first. The screensaver dismisses on input, and the popover closing is one
+        // more thing happening on screen at the moment it is trying to come up.
         dismiss()
+        controller.startDrift(status: status, duration: duration)
     }
 
     /// Brings back whatever was picked last time, without acting on it.

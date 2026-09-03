@@ -278,8 +278,17 @@ To exercise the real Start Drift path end to end, three times over:
 DRIFT_PROBE=start build/Drift.app/Contents/MacOS/Drift
 ```
 
-Each cycle takes the screen for under a second and reports whether the screensaver came up,
-what was on it, and what was published after the session ended.
+Each cycle reports whether the screensaver came up, whether it was *still* up four seconds
+later, what was on it, and what was published after the session ended.
+`DRIFT_PROBE=heckle` runs one session and knocks the screensaver down underneath it, which
+is the failure a hand resting on the trackpad causes.
+
+**The first five seconds are the fragile ones.** The screensaver dismisses on any input —
+that is its whole job — and pressing Start Drift is input, so a hand still on the trackpad
+takes the sign straight back down. Drift waits for the click to settle, starts the
+screensaver, watches for three seconds, and starts it again if it went down, up to five
+times. Once macOS has locked the session behind it, the sign is sticky: macOS then refuses
+to take the screensaver down without your password.
 
 ## What Drift remembers
 

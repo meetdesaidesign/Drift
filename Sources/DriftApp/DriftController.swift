@@ -9,7 +9,6 @@ final class DriftController: ObservableObject {
 
     let store: StatusStore
     private var settingsWindow: NSWindow?
-    private var observers: [NSObjectProtocol] = []
     private var returnWatch: Task<Void, Never>?
     private let stayLit = StayLit()
 
@@ -26,7 +25,6 @@ final class DriftController: ObservableObject {
         // never opened — an idle Mac should say "Away from desk", not show whatever was
         // left in the file.
         store.publish(force: true)
-        installReturnObservers()
     }
 
     // MARK: Starting and ending
@@ -46,17 +44,18 @@ final class DriftController: ObservableObject {
         // Before the screensaver, not after: this Mac turns its display off after five
         // minutes, and a sign on a dark screen is not a sign. See `StayLit`.
         stayLit.hold()
-        beginWatchingForReturn()
         EventLog.append("start: session begun, starting the screensaver")
 
         Task {
             do {
-                try await ScreenSaverLauncher.start()
-                EventLog.append("start: screensaver is up")
+                try await ScreenSaverLauncher.startAndHold { EventLog.append("start: \($0)") }
+                // Only now: watching for a return before the screensaver has settled is
+                // how a session ends two seconds after it began.
+                beginWatchingForReturn()
             } catch {
                 startError = error.localizedDescription
                 EventLog.append("start FAILED: \(error.localizedDescription)")
-                endDrift()
+                endDrift(reason: "start failed")
             }
         }
     }
@@ -76,49 +75,58 @@ final class DriftController: ObservableObject {
 
     // MARK: Noticing that you came back
 
-    /// The screensaver stopping *is* the user returning: macOS ends it on the first key
-    /// or click, and on unlock. Both notifications are watched, and both are cheap.
-    private func installReturnObservers() {
-        for name in ["com.apple.screensaver.didstop", "com.apple.screenIsUnlocked"] {
-            let observer = DistributedNotificationCenter.default().addObserver(
-                forName: Notification.Name(name), object: nil, queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self, self.store.isActive else { return }
-                    self.endDrift(reason: name)
-                }
-            }
-            observers.append(observer)
-        }
-    }
+    /// Nothing here listens for a notification any more, and that is deliberate.
+    ///
+    /// Both of the obvious ones lie. `com.apple.screensaver.didstop` means the screensaver
+    /// stopped, which is exactly what a hand brushing the trackpad does — and
+    /// `com.apple.screenIsUnlocked` fires on that same brush, because dismissing the
+    /// screensaver inside the password grace period unlocks the screen without asking for
+    /// anything. Both were measured firing one second into a session that had barely
+    /// begun, ending it and republishing "Away from desk" while the screensaver was on its
+    /// way back up.
+    ///
+    /// Whether you are back is not an event. It is a question about the next few seconds,
+    /// which is what the watchdog below answers.
 
-    /// A backstop for the notifications above, which are Apple's and undocumented.
+    /// Keeps the sign up, and ends the session only when you are actually back.
     ///
-    /// It requires *both* signals: the screensaver is no longer up, and the Mac has seen
-    /// input in the last couple of seconds. Either one alone ends sessions that should
-    /// still be running.
+    /// Armed once the screensaver has held, so by the time this runs the screensaver being
+    /// gone means something took it down. Two things can do that and they look identical
+    /// at the instant it happens — a hand brushing the trackpad, and you sitting back
+    /// down. What tells them apart is what happens next: presence continues, a brush does
+    /// not.
     ///
-    /// Input alone is the dangerous one, and it was the bug: a bluetooth mouse nudged on
-    /// the desk, a USB device waking, anything at all, and Drift ended the session while
-    /// the screensaver was still on screen — so the sign quietly changed from "Out for
-    /// lunch" to "Away from desk" behind your back. Requiring the screensaver to be gone
-    /// too makes that impossible, because it is the thing you must dismiss to be back.
-    ///
-    /// The screensaver's absence alone is not enough either: it is briefly absent between
-    /// Start Drift and the screen being taken, which is what `startupGrace` covers.
+    /// So while a session is live: if the screensaver is down and nobody has touched
+    /// anything for a few seconds, put it back up — that is a brush, and the sign should
+    /// still be showing. If input keeps coming for several checks in a row, you are back,
+    /// and the session ends. Somebody who has changed their mind gets the screensaver
+    /// restored once and then, by carrying on using the Mac, ends the session anyway.
     private func beginWatchingForReturn() {
         returnWatch?.cancel()
         returnWatch = Task { [weak self] in
-            let startedAt = Date()
-            let startupGrace: TimeInterval = 6
+            var presenceTicks = 0
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(2))
                 if Task.isCancelled { return }
                 guard let self, self.store.isActive else { return }
-                guard Date().timeIntervalSince(startedAt) > startupGrace else { continue }
-                if !ScreenSaverLauncher.isRunning, DriftController.secondsSinceInput() < 2 {
-                    self.endDrift(reason: "you came back")
-                    return
+
+                if ScreenSaverLauncher.isRunning {
+                    presenceTicks = 0
+                    continue
+                }
+
+                if DriftController.secondsSinceInput() < 2 {
+                    presenceTicks += 1
+                    // Roughly six seconds of continuous input. Nobody brushes a trackpad
+                    // for six seconds.
+                    if presenceTicks >= 3 {
+                        self.endDrift(reason: "you came back")
+                        return
+                    }
+                } else {
+                    presenceTicks = 0
+                    EventLog.append("watchdog: the sign was down with nobody here, putting it back")
+                    try? await ScreenSaverLauncher.start()
                 }
             }
         }
@@ -139,10 +147,6 @@ final class DriftController: ObservableObject {
         returnWatch?.cancel()
         returnWatch = nil
         stayLit.release()
-        for observer in observers {
-            DistributedNotificationCenter.default().removeObserver(observer)
-        }
-        observers.removeAll()
         // Leave the published file idle: with Drift gone, nothing can end a session, so
         // a live one on disk would tell every later screensaver you were still at lunch.
         store.end()

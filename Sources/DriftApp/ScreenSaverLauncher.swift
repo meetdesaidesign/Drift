@@ -19,6 +19,7 @@ enum ScreenSaverLauncher {
         case engineMissing
         case launchFailed(String)
         case didNotStart
+        case keptBeingDismissed
 
         var errorDescription: String? {
             switch self {
@@ -28,6 +29,8 @@ enum ScreenSaverLauncher {
                 return "Could not start the screensaver: \(message)"
             case .didNotStart:
                 return "macOS did not start the screensaver. Check that a screensaver is chosen in System Settings › Screen Saver."
+            case .keptBeingDismissed:
+                return "The screensaver kept being dismissed — a key press or the trackpad does that. Press Start Drift and take your hand off."
             }
         }
     }
@@ -75,6 +78,57 @@ enum ScreenSaverLauncher {
 
     private static var engineIsRunning: Bool {
         NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == engineBundleID }
+    }
+
+    /// Starts the screensaver and makes sure it *stays* started.
+    ///
+    /// This is the part that made Drift look broken at random, and it is worth writing
+    /// down. The screensaver dismisses on any input at all — that is its entire job — and
+    /// pressing Start Drift is input. Measured from a real session log: the screensaver
+    /// came up on every attempt and macOS took it down again one to two seconds later,
+    /// because a hand was still resting on the trackpad. Whether it survived was down to
+    /// whether that hand happened to move.
+    ///
+    /// So: wait for the click to settle, start it, and then watch. If it goes down inside
+    /// the first few seconds, start it again. Once it has held for `holdSeconds` the
+    /// password grace has all but elapsed and the session locks behind it, after which
+    /// nothing short of your password brings it down.
+    ///
+    /// The retry window is deliberately short. Inside a dozen seconds of pressing Start
+    /// Drift your intent is not in doubt; after that, giving up and saying so is better
+    /// than fighting someone who has changed their mind.
+    private static let settleDelay: Duration = .milliseconds(800)
+    private static let holdSeconds: TimeInterval = 3
+    private static let maximumAttempts = 5
+    private static let betweenAttempts: Duration = .milliseconds(1200)
+
+    static func startAndHold(log: (String) -> Void = { _ in }) async throws {
+        // Let the click that got us here — and the popover closing on top of it — finish
+        // before handing the screen over.
+        try? await Task.sleep(for: settleDelay)
+
+        for attempt in 1...maximumAttempts {
+            try await start()
+            if await stayedUp(for: holdSeconds) {
+                log("screensaver held (attempt \(attempt))")
+                return
+            }
+            log("screensaver was dismissed within \(Int(holdSeconds))s (attempt \(attempt))")
+            if attempt < maximumAttempts {
+                try? await Task.sleep(for: betweenAttempts)
+            }
+        }
+        throw Failure.keptBeingDismissed
+    }
+
+    /// True if the screensaver was still up for the whole interval.
+    private static func stayedUp(for seconds: TimeInterval) async -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(250))
+            if !isRunning { return false }
+        }
+        return isRunning
     }
 
     /// Starts the screensaver, and then goes back and checks that it really did.

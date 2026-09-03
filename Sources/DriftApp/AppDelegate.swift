@@ -41,6 +41,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch ProcessInfo.processInfo.environment["DRIFT_PROBE"] {
         case "start":
             MenuBarProbe.runStartCycles(controller: controller)
+        case "heckle":
+            MenuBarProbe.runHeckled(controller: controller)
         case .some:
             MenuBarProbe.run(menuBar: self.menuBar)
         case nil:
@@ -163,11 +165,15 @@ extension MenuBarProbe {
             for cycle in 1...cycles {
                 controller.startDrift(status: .preset("lunch"), duration: .minutes(30))
 
+                // Long enough to cover the settle delay, one hold window and a retry.
                 var cameUp = false
-                for _ in 0..<40 {
+                for _ in 0..<160 {
                     if ScreenSaverLauncher.isRunning { cameUp = true; break }
                     try? await Task.sleep(for: .milliseconds(50))
                 }
+                // Then let it prove it stays up, which is the part that was failing.
+                try? await Task.sleep(for: .seconds(4))
+                let stillUp = ScreenSaverLauncher.isRunning
                 let onScreen = published()
                 let active = controller.store.isActive
                 ScreenSaverLauncher.stop()
@@ -175,11 +181,51 @@ extension MenuBarProbe {
                 try? await Task.sleep(for: .milliseconds(600))
                 let afterEnd = published()
 
-                let verdict = (cameUp && active && onScreen == "Out for lunch" && afterEnd == "Away from desk")
+                let verdict = (cameUp && stillUp && active && onScreen == "Out for lunch" && afterEnd == "Away from desk")
                     ? "PASS" : "FAIL"
-                print("PROBE  cycle \(cycle): \(verdict)  screensaver=\(cameUp ? "up" : "NOT UP")  showed=\"\(onScreen)\"  session=\(active ? "active" : "NOT ACTIVE")  after end=\"\(afterEnd)\"")
+                print("PROBE  cycle \(cycle): \(verdict)  came up=\(cameUp)  still up after 4s=\(stillUp)  showed=\"\(onScreen)\"  session=\(active ? "active" : "NOT ACTIVE")  after end=\"\(afterEnd)\"")
                 try? await Task.sleep(for: .milliseconds(400))
             }
+            exit(0)
+        }
+    }
+}
+
+extension MenuBarProbe {
+
+    /// The failing case, reproduced on purpose: the screensaver is knocked down twice
+    /// just after it comes up, the way a hand resting on the trackpad knocks it down.
+    /// Drift is expected to put it back and end up holding.
+    @MainActor
+    static func runHeckled(controller: DriftController) {
+        Task { @MainActor in
+            controller.startDrift(status: .preset("lunch"), duration: .minutes(30))
+
+            var knocks = 0
+            let deadline = Date().addingTimeInterval(20)
+            while Date() < deadline, knocks < 2 {
+                try? await Task.sleep(for: .milliseconds(200))
+                if ScreenSaverLauncher.isRunning {
+                    // Wait a beat so this lands inside the hold window, as a stray touch
+                    // would, rather than racing the start itself.
+                    try? await Task.sleep(for: .milliseconds(700))
+                    ScreenSaverLauncher.stop()
+                    knocks += 1
+                    print("PROBE  knocked the screensaver down (\(knocks)) — down now: \(!ScreenSaverLauncher.isRunning)")
+                }
+            }
+
+            // Now leave it alone and see whether Drift got it back up and kept it there.
+            try? await Task.sleep(for: .seconds(8))
+            let up = ScreenSaverLauncher.isRunning
+            let active = controller.store.isActive
+            let showing = SharedStatusFile().readIfAvailable()?.display.text ?? "<none>"
+            print("PROBE  after being knocked down twice: screensaver=\(up ? "UP" : "down")  session=\(active ? "active" : "ended")  showing=\"\(showing)\"")
+            print("PROBE  \(up && active && showing == "Out for lunch" ? "PASS" : "FAIL")")
+
+            ScreenSaverLauncher.stop()
+            controller.endDrift(reason: "probe")
+            try? await Task.sleep(for: .milliseconds(500))
             exit(0)
         }
     }

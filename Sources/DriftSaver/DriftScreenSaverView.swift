@@ -23,16 +23,17 @@ public final class DriftScreenSaverView: ScreenSaverView {
     private var framesSinceRefresh = 0
     private var lastModified: Date?
 
-    /// Nothing on this screen moves quickly, so the frame rate only has to be smooth
-    /// enough for the one-second fade-in.
-    private static let fps: Double = 20
+    /// Fast enough for the sign's swing to look like a swing. It only costs this for the
+    /// twenty-odd seconds the swing lasts — after that `animateOneFrame` stops rebuilding
+    /// the view every frame, and 30fps of nothing is nearly free.
+    private static let fps: Double = 30
     /// Re-read status.json about every two seconds, so a status extended with "+10 min"
     /// appears without waiting.
-    private static let reloadEveryFrames = 40
+    private static let reloadEveryFrames = 60
     /// Rebuild the SwiftUI view about every 1.5s. The burn-in drift moves a fifth of a
     /// point per second — redrawing it 20 times a second would be 20 times the work for
     /// no visible difference.
-    private static let refreshEveryFrames = 30
+    private static let refreshEveryFrames = 45
 
     private static let backgroundColour = NSColor(
         calibratedRed: 0.0392, green: 0.0392, blue: 0.0392, alpha: 1
@@ -121,9 +122,12 @@ public final class DriftScreenSaverView: ScreenSaverView {
             }
         }
 
-        // The return line has to keep up with the clock, since "Back around 1:35 PM"
-        // becomes "Expected back shortly" on its own.
-        if framesSinceRefresh >= DriftScreenSaverView.refreshEveryFrames {
+        // Every frame while the sign is still swinging; once it has settled, every
+        // second and a half — the return line has to keep up with the clock, since
+        // "Back around 1:35 PM" becomes "Expected back shortly" on its own, but the
+        // burn-in wander moves a fifth of a point per second and does not.
+        if DriftScreenView.isSwinging(at: phase)
+            || framesSinceRefresh >= DriftScreenSaverView.refreshEveryFrames {
             refreshRootView()
         }
     }

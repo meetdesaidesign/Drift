@@ -160,26 +160,59 @@ else — it runs inside macOS's sandboxed `legacyScreenSaver` host, and all it c
 that one file. See [FEASIBILITY.md](FEASIBILITY.md) for how that was verified, including
 why the file works where an App Group cannot.
 
-After a rebuild, re-run `./install-saver.sh` to replace the installed copy.
+After a rebuild, re-run `./install-saver.sh` to replace the installed copy. Expect the
+first start or two afterwards to be flaky: that script kills `WallpaperAgent` and the
+screensaver host, and they take a moment to load the new bundle.
 
 ## The screen
 
-Solid `#0A0A0A`, text in `#F2F2F0` and `#8C8C87`, SF Pro, left-aligned slightly left of and
-below centre. No gradient, no card, no illustration, no emoji. The status sits at 64–80pt
-and the return line at 24–30pt, scaled off the shorter screen edge so the same layout holds
-on a laptop panel, a 5K display, a portrait monitor and the thumbnail preview in System
-Settings. Long custom messages wrap and then shrink rather than clip.
+A shop's "Sorry, we're closed" board, hung on two chains from a screw eye, with your status
+painted on it:
 
-Nothing on this screen depends on the animation clock advancing: it reads correctly on the
-very first frame, and would go on reading correctly if the host never gave it another one.
-`tools/saver-loadtest.swift` asserts that.
+```
+                    ○
+                 ╱     ╲
+        ┌───────────────────────┐
+        │        Sorry          │
+        │     Out for lunch     │
+        │  Back around 1:35 PM  │
+        └───────────────────────┘
+```
 
-The text wanders about 14pt over roughly seven minutes as burn-in insurance. That is a
-fifth of a point per second: far below what reads as movement, far enough that no pixel
-holds the same glyph all afternoon.
+Every part of it is a vector — board, chains, screw eyes, painted edge — so there is no
+image asset to ship inside a sandboxed screensaver bundle and nothing to go soft on a
+Retina display. Solid `#0A0A0A` wall, board a shade off it, cream `#F2F2F0` lettering and
+`#8C8C87` for the return time, "Sorry" set in Snell Roundhand, the rest in SF Pro.
+
+The board is sized off the *lettering*, not the screen: the status is clamped at 78pt
+because past that it is no easier to read across a room, so a board sized off the screen
+alone would be a mostly empty rectangle on a 5K display. It comes out at about nine times
+the type size on every display — the same sign on a bigger wall. Long custom messages wrap
+to three lines inside the board and then shrink rather than clip.
+
+**It swings.** A hanging sign only moves because something moved it, so this is a decaying
+pendulum rather than a loop: a 3° kick when the sign goes up — somebody just flipped it
+over and left — damping to rest within about fifteen seconds, and then a 1.1° nudge every
+three and a half minutes, the way a draught catches a sign in a doorway. Between kicks it
+hangs still.
+
+That is also the cheap version. The screensaver only redraws at frame rate while the sign
+is actually moving, which is about ten per cent of the time; the rest of the time it
+redraws twice a second, and that is for the clock rather than the motion.
+
+Nothing on this screen depends on the animation clock advancing. At `phase` 0 the sign
+hangs at its just-been-flipped angle and reads perfectly, and it would go on reading
+perfectly if the host never gave it another frame — `tools/saver-loadtest.swift` asserts
+exactly that, by counting lit pixels before calling `animateOneFrame` at all. An earlier
+version faded the text in over the first second and therefore drew a blank screen on its
+first frame, which is indistinguishable from a broken screensaver.
+
+The whole composition also wanders about 14pt over roughly seven minutes as burn-in
+insurance. That is a fifth of a point per second: far below what the eye reads as movement,
+far enough that no pixel holds the same glyph all afternoon.
 
 Every display gets its own instance of the screensaver, each reading the same file, so all
-of them show the same status.
+of them show the same sign.
 
 **Drift keeps the display awake while a session is running.** It has to: this Mac turns its
 display off after five minutes, and a sign on a dark screen is not a sign — that mismatch

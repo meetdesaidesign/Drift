@@ -30,7 +30,9 @@ if [ -d "$SAVER" ]; then ok "Back Soon.saver is installed"; else warn "Back Soon
 # Match on this bundle's own path. macOS ships a screensaver called Drift of its own, at
 # /System/Library/ExtensionKit/Extensions/Drift.appex, and it is listed in the very same
 # "Other" section — which is why this one is called "Back Soon".
-if [ -f "$INDEX" ] && grep -qa "Screen Savers/Back Soon.saver" "$INDEX"; then
+# Both spellings: macOS stores the selection as a percent-encoded file URL, so the store
+# says "Back%20Soon.saver" and grepping for the plain name finds nothing.
+if [ -f "$INDEX" ] && grep -qaE "Back(%20| )Soon\.saver" "$INDEX"; then
     ok "Back Soon is the selected screensaver"
 elif [ -f "$INDEX" ] && grep -qa "ExtensionKit/Extensions/Drift.appex" "$INDEX"; then
     warn "the selected screensaver is Apple's Drift, not this one — under 'Other' in System Settings > Screen Saver, choose 'Back Soon'"
@@ -93,20 +95,33 @@ if [ "${1:-}" != "--start" ]; then
 fi
 
 echo
-bold "Starting the screensaver for one second"
+bold "Starting the screensaver for two seconds"
 echo "Press ctrl-C now to abort."
 sleep 2
-open -a "$ENGINE"
-sleep 1
-if pgrep -x ScreenSaverEngine > /dev/null || pgrep -f legacyScreenSaver > /dev/null; then
-    RESULT="ok"
-else
-    RESULT="failed"
-fi
-killall ScreenSaverEngine 2>/dev/null || true
+
+# The same call the app makes, for the same reason: on macOS 26 launching
+# ScreenSaverEngine.app does nothing at all — measured on this Mac — while
+# SACScreenSaverStartNow in login.framework, which is what the system's own hot corners
+# use, takes the screen. Private, so absence is handled rather than assumed.
+python3 - <<'PY'
+import ctypes, sys, time
+try:
+    login = ctypes.CDLL("/System/Library/PrivateFrameworks/login.framework/login")
+except OSError:
+    print("  ! login.framework could not be loaded"); sys.exit(1)
+for name in ("SACScreenSaverStartNow", "SACScreenSaverStopNow", "SACScreenSaverIsRunning"):
+    if not hasattr(login, name):
+        print(f"  ! {name} is gone from this macOS — Drift falls back to launching ScreenSaverEngine")
+        sys.exit(1)
+login.SACScreenSaverIsRunning.restype = ctypes.c_int
+started = login.SACScreenSaverStartNow()
+time.sleep(2)
+running = login.SACScreenSaverIsRunning()
+login.SACScreenSaverStopNow()
+print(f"  \033[32m✓\033[0m the screensaver started — Start Drift will work"
+      if started == 0 and running else
+      f"  \033[33m!\033[0m the screensaver did not start (start={started}, running={running})")
+PY
+
 echo
-if [ "$RESULT" = "ok" ]; then
-    ok "the screensaver started — Start Drift will work"
-else
-    warn "the screensaver did not start; Drift will report the same and end the session"
-fi
+echo "  · it may take a few seconds to hand the screen back; a key or the trackpad does it"

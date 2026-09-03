@@ -1,4 +1,5 @@
 import AppKit
+import CoreGraphics
 import SwiftUI
 
 /// Wires the store to the things only the app can do: starting the screensaver, noticing
@@ -84,25 +85,40 @@ final class DriftController: ObservableObject {
 
     /// A backstop for the notifications above, which are Apple's and undocumented.
     ///
-    /// It waits until it has actually seen the screensaver running before treating its
-    /// absence as a return — otherwise it would end the session in the second between
-    /// Start Drift and the engine taking the screen.
+    /// It watches for input rather than for the screensaver going away. Asking macOS
+    /// whether the screensaver is still up lags: `SACScreenSaverIsRunning` was measured
+    /// here still answering yes several seconds after it had been told to stop, and the
+    /// host process is no signal at all. Input is unambiguous — if the Mac has seen a key
+    /// or the trackpad in the last couple of seconds, you are sitting in front of it, and
+    /// the screensaver you had to dismiss to do that is gone.
+    ///
+    /// `startupGrace` exists because starting Drift *is* input: without it the session
+    /// would end a second after it began.
     private func beginWatchingForReturn() {
         returnWatch?.cancel()
         returnWatch = Task { [weak self] in
-            var sawScreenSaver = false
+            let startedAt = Date()
+            let startupGrace: TimeInterval = 6
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(2))
                 if Task.isCancelled { return }
                 guard let self, self.store.isActive else { return }
-                if ScreenSaverLauncher.isRunning {
-                    sawScreenSaver = true
-                } else if sawScreenSaver {
+                guard Date().timeIntervalSince(startedAt) > startupGrace else { continue }
+                if DriftController.secondsSinceInput() < 2 {
                     self.endDrift()
                     return
                 }
             }
         }
+    }
+
+    /// How long since the Mac last saw a key, a click or the trackpad.
+    ///
+    /// `CGEventSource` needs no Accessibility permission and no event tap — Drift never
+    /// observes *what* you type, only how long ago you last did anything.
+    private static func secondsSinceInput() -> TimeInterval {
+        guard let anyInput = CGEventType(rawValue: ~0) else { return .infinity }
+        return CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput)
     }
 
     // MARK: Lifecycle

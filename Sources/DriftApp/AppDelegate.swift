@@ -111,6 +111,11 @@ enum MenuBarProbe {
                 print("PROBE  item window    NONE — nothing is in the menu bar")
             }
 
+            let saver = ScreenSaverInstallation.current()
+            print("PROBE  saver installed \(saver.isInstalled)")
+            print("PROBE  saver selected  \(saver.isSelected)")
+            print("PROBE  engine running  \(ScreenSaverLauncher.isRunning)")
+
             // The click path, exactly as the button would trigger it.
             menuBar.togglePopover()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {

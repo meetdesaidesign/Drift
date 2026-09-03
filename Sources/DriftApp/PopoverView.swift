@@ -17,6 +17,9 @@ struct PopoverView: View {
     @State private var isPickingCustomTime = false
     @State private var customTime = PopoverView.defaultCustomTime()
     @State private var isStarting = false
+    /// Checked when the popover opens. macOS owns this and it changes in System Settings,
+    /// so there is nothing to observe — and a stale answer would be worse than none.
+    @State private var saverInstallation = ScreenSaverInstallation.current()
     @FocusState private var customFieldFocused: Bool
 
     static let width: CGFloat = 340
@@ -33,7 +36,10 @@ struct PopoverView: View {
         }
         .frame(width: PopoverView.width)
         .background(escapeKeyCatcher)
-        .onAppear(perform: restoreChoices)
+        .onAppear {
+            restoreChoices()
+            saverInstallation = ScreenSaverInstallation.current()
+        }
     }
 
     // MARK: Header
@@ -176,6 +182,28 @@ struct PopoverView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // Shown only when it is actually wrong, and it matters here rather than in
+            // Settings: without this, Start Drift starts somebody else's screensaver and
+            // your status never appears. Drift cannot fix it — the selection lives in a
+            // binary plist macOS owns.
+            if !saverInstallation.isSelected {
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text(saverInstallation.isInstalled
+                         ? "Drift isn’t your selected screensaver."
+                         : "Drift’s screensaver isn’t installed.")
+                    if saverInstallation.isInstalled {
+                        Button("Choose it") {
+                            dismiss()
+                            controller.openScreenSaverSettings()
+                        }
+                        .buttonStyle(.link)
+                    }
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

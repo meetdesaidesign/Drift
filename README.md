@@ -49,6 +49,19 @@ open build/Drift.app
 Drift appears in the menu bar as a moon — hollow when idle, filled while a session is
 running. There is no Dock icon and no window; click the menu-bar item.
 
+**If you cannot find the icon**, macOS decides where a new status item goes. On first run
+Drift asks for a slot among your other menu-bar icons, because the default is the gap
+beside the notch, which is easy to mistake for the app never launching. Drag it anywhere
+with ⌘ held and macOS remembers. To check whether it is there at all:
+
+```bash
+./tools/menubar-probe.sh
+```
+
+That asks the real app where its item landed and whether its popover opens, because
+nothing outside the process can see a status item on this Mac — `screencapture` needs
+Screen Recording permission and `log show` needs Full Disk Access.
+
 To keep it around, drag `build/Drift.app` to `/Applications` or `~/Applications`. Launch at
 login only works from a stable location.
 
@@ -185,6 +198,10 @@ That reports everything that has to be true: the engine is present, `Drift.saver
 installed *and selected*, whether a password is required and after how long, and when the
 display sleeps. `--start` also starts the screensaver for one second.
 
+If `Drift.saver` is installed but not selected, the popover says so under Start Drift,
+with a link straight to the right pane — because otherwise Start Drift shows somebody
+else's screensaver and your status never appears anywhere.
+
 ### Two things that will make this look broken
 
 **macOS ships its own screensaver also called Drift**, at
@@ -287,7 +304,7 @@ Sources/
     DriftScreenView.swift        the screen itself
   DriftApp/
     DriftAppMain.swift           AppKit entry point
-    AppDelegate.swift            launch, teardown, and the invisible main menu
+    AppDelegate.swift            launch, teardown, the invisible main menu, DRIFT_PROBE
     MenuBarController.swift      the status item and the popover
     PopoverView.swift            the setup form and the active session
     DriftController.swift        starting, ending, and noticing you came back
@@ -297,6 +314,7 @@ Sources/
   DriftSaver/
     DriftScreenSaverView.swift   the ScreenSaverView subclass
 tools/
+  menubar-probe.sh            asks the real app where its status item is; does the popover open?
   saver-loadtest.swift        loads the .saver the way macOS does; renders frames
   render-ui.sh                renders the app's views offscreen, in both appearances
   test-screensaver.sh         checks what Start Drift will actually do on this Mac

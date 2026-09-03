@@ -166,30 +166,57 @@ screensaver host, and they take a moment to load the new bundle.
 
 ## The screen
 
-A shop's closed sign, hung on two chains from a screw eye, with your status painted on it:
+A shop's closed sign, hung on two chains from a screw eye, with your status painted on it
+and your name in the corner:
 
 ```
-                    ○
-                 ╱     ╲
-        ┌───────────────────────┐
-        │                       │
-        │     Out for lunch     │
-        │  Back around 1:35 PM  │
-        │                       │
-        └───────────────────────┘
+                       ●
+                    ╱     ╲
+           ┌───────────────────────┐
+           │                       │
+           │     Out for lunch     │
+           │  Back around 1:35 PM  │
+           │                       │
+           └───────────────────────┘
+
+
+  ▢  Meet Desai
+     Product Designer II
 ```
 
-Every part of it is a vector — board, chains, screw eyes, painted edge — so there is no
-image asset to ship inside a sandboxed screensaver bundle and nothing to go soft on a
-Retina display. Solid `#0A0A0A` wall, board a shade off it, cream `#F2F2F0` lettering and
-`#8C8C87` for the return time, all of it SF Pro.
+`#0B0B0B` wall with a soft pool of light in each top corner; the board a vertical gradient
+from `#181818` down to nearly the wall's own colour, a `#828282` edge at 20%, white
+lettering and `#A7A69F` for the return time. The board carries a fine grain, because a
+painted board is not a flat field of one colour and at this size a perfectly flat one reads
+as a rectangle rather than as a thing.
 
-The board is sized off the *lettering*, not the screen: the status is clamped at 78pt
-because past that it is no easier to read across a room, so a board sized off the screen
-alone would be a mostly empty rectangle on a 5K display. It comes out at about nine times
-the type size on every display — the same sign on a bigger wall. A long custom message
-wraps to three lines and the board grows to take them, the way a signwriter would have cut
-a taller one; past that the type shrinks rather than clipping.
+Almost none of that is an asset. The sign, the chains, the corner light and the grain are
+all drawn, so there is nothing to go soft on a Retina display and nothing for a sandboxed
+screensaver bundle to fail to find; the grain is a tile of seeded noise built on first use,
+and the seed is fixed so every render of a given frame is identical and the offscreen
+harness can diff them. The one exception is the avatar, which is carried as base64 in
+`DriftAvatar.swift` — six kilobytes for a literal that cannot be missing, which a file in
+`Contents/Resources` can be in two of the four things `DriftShared` is compiled into.
+
+The name comes from the Mac's own account rather than from a preferences pane. The role is
+a constant in `DriftIdentity`: it is the one line here that changes about once a year, so
+it is a line of code, not a setting.
+
+Every dimension on the board is a fraction of the board's width, and the board is sized off
+the *lettering* rather than the screen: the status is clamped at 78pt because past that it
+is no easier to read across a room, so a board sized off the screen alone would be a mostly
+empty rectangle on a 5K display. It comes out at ten times the type size on every display —
+the same sign on a bigger wall. A long custom message wraps to three lines and the board
+grows to take them, the way a signwriter would have cut a taller one; past that the type
+shrinks rather than clipping.
+
+The corner badge is screen furniture rather than part of the sign, so it is clamped hard —
+a name at 40pt is a name at 40pt on any panel — and it is left off the thumbnail-sized
+preview in System Settings, where it would be illegible clutter.
+
+The design calls for DM Sans and Mona Sans, neither of which ships with macOS. Both are
+asked for by name and fall back to SF Pro when they are not installed, which is the case on
+a stock Mac; install them and the screen sets exactly as the Figma does.
 
 **It swings.** A hanging sign only moves because something moved it, so this is a decaying
 pendulum rather than a loop: a 3° kick when the sign goes up — somebody just flipped it
@@ -377,11 +404,12 @@ install-saver.sh              installs Back Soon.saver into ~/Library/Screen Sav
 Sources/
   DriftCore/                  pure Foundation, no AppKit — the testable half
     DriftSession.swift           the model, the display rule, and the wording
-    DriftSettings.swift          the setting, the four presets, the durations
+    DriftSettings.swift          the setting, the four presets, the durations, whose desk
     StatusStore.swift            state, persistence, publishing
     SharedStatusFile.swift       status.json — the app/screensaver contract
   DriftShared/
     DriftScreenView.swift        the screen itself
+    DriftAvatar.swift            the corner avatar, as a base64 literal
   DriftApp/
     DriftAppMain.swift           AppKit entry point
     AppDelegate.swift            launch, teardown, the invisible main menu, DRIFT_PROBE

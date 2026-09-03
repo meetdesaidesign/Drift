@@ -36,7 +36,7 @@ public final class DriftScreenSaverView: ScreenSaverView {
     private static let refreshEveryFrames = 45
 
     private static let backgroundColour = NSColor(
-        calibratedRed: 0.0392, green: 0.0392, blue: 0.0392, alpha: 1
+        calibratedWhite: 0.0431, alpha: 1
     )
 
     public override init?(frame: NSRect, isPreview: Bool) {

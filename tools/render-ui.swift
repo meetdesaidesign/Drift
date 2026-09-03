@@ -171,37 +171,35 @@ struct RenderUI {
     let backAt = now.addingTimeInterval(35 * 60)
     let lunch = DisplayStatus(text: "Out for lunch", returnTime: backAt, updatedAt: now)
 
-    render(DriftScreenView(display: lunch, phase: 0, now: now),
+    // The identity is pinned rather than read off the account, so these PNGs are the
+    // same on any Mac and a diff between two runs means a real layout change.
+    func screen(_ display: DisplayStatus, phase: Double) -> DriftScreenView {
+        DriftScreenView(display: display, phase: phase, now: now,
+                        name: "Meet Desai", role: "Product Designer II")
+    }
+
+    render(screen(lunch, phase: 0),
            named: "screen-laptop-at-rest-frame-0", size: CGSize(width: 1440, height: 900))
     // Three points through the swing, to see the tilt without a video.
     for (label, phase) in [("swing-left", 1.3), ("swing-right", 2.6), ("settling", 6.0), ("settled", 30.0)] {
-        render(DriftScreenView(display: lunch, phase: phase, now: now),
+        render(screen(lunch, phase: phase),
                named: "screen-laptop-\(label)", size: CGSize(width: 1440, height: 900))
     }
-    render(DriftScreenView(display: lunch, phase: 30, now: now),
+    render(screen(lunch, phase: 30),
            named: "screen-5k", size: CGSize(width: 2560, height: 1440))
-    render(DriftScreenView(display: lunch, phase: 30, now: now),
+    render(screen(lunch, phase: 30),
            named: "screen-portrait", size: CGSize(width: 800, height: 1200))
-    render(DriftScreenView(display: lunch, phase: 30, now: now),
+    render(screen(lunch, phase: 30),
            named: "screen-preview-thumbnail", size: CGSize(width: 480, height: 300))
-    render(DriftScreenView(
-                display: DisplayStatus(
-                    text: "Waiting for the plumber to turn up, back after that",
-                    returnTime: backAt, updatedAt: now),
-                phase: 30, now: now),
+    render(screen(DisplayStatus(text: "Waiting for the plumber to turn up, back after that",
+                                returnTime: backAt, updatedAt: now), phase: 30),
            named: "screen-longtext", size: CGSize(width: 1440, height: 900))
-    render(DriftScreenView(
-                display: DisplayStatus(text: "In a meeting", returnTime: nil, updatedAt: now),
-                phase: 30, now: now),
+    render(screen(DisplayStatus(text: "In a meeting", returnTime: nil, updatedAt: now), phase: 30),
            named: "screen-no-return-time", size: CGSize(width: 1440, height: 900))
-    render(DriftScreenView(
-                display: DisplayStatus(text: "Out for lunch",
-                                       returnTime: now.addingTimeInterval(-1800), updatedAt: now),
-                phase: 30, now: now),
+    render(screen(DisplayStatus(text: "Out for lunch",
+                                returnTime: now.addingTimeInterval(-1800), updatedAt: now), phase: 30),
            named: "screen-overdue", size: CGSize(width: 1440, height: 900))
-    render(DriftScreenView(
-                display: DisplayStatus(text: DriftSettings.idleText, updatedAt: now),
-                phase: 30, now: now),
+    render(screen(DisplayStatus(text: DriftSettings.idleText, updatedAt: now), phase: 30),
            named: "screen-idle", size: CGSize(width: 1440, height: 900))
 
     defaults.removePersistentDomain(forName: id)

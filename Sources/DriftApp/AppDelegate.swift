@@ -15,6 +15,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Accessory, not regular: no Dock icon and no window on launch.
         log.log("applicationDidFinishLaunching")
+
+        // One Drift at a time. Two instances mean two menu-bar items, two return watches,
+        // and one of them ending the session the other started — which reads as Drift
+        // losing your status at random. `open` reuses a running app, but launching the
+        // binary directly does not, and that is easy to do from a build directory.
+        let mine = ProcessInfo.processInfo.processIdentifier
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: "co.drift.app")
+            .filter { $0.processIdentifier != mine }
+        if !others.isEmpty, ProcessInfo.processInfo.environment["DRIFT_PROBE"] == nil {
+            log.log("another Drift is already running; leaving it to it")
+            others.first?.activate()
+            NSApp.terminate(nil)
+            return
+        }
+
         NSApp.setActivationPolicy(.accessory)
         AppMenu.install()
 
@@ -23,8 +38,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.menuBar = MenuBarController(controller: controller)
         log.log("launch finished")
 
-        if ProcessInfo.processInfo.environment["DRIFT_PROBE"] != nil {
+        switch ProcessInfo.processInfo.environment["DRIFT_PROBE"] {
+        case "start":
+            MenuBarProbe.runStartCycles(controller: controller)
+        case .some:
             MenuBarProbe.run(menuBar: self.menuBar)
+        case nil:
+            break
         }
     }
 
@@ -122,6 +142,45 @@ enum MenuBarProbe {
                 print("PROBE  popover opens  \(menuBar.popover.isShown)")
                 exit(0)
             }
+        }
+    }
+}
+
+extension MenuBarProbe {
+
+    /// Runs the real Start Drift path a few times over and reports what happened each
+    /// time, because "it works sometimes" cannot be answered by trying it once.
+    ///
+    /// Each cycle takes the screen for well under a second and hands it straight back,
+    /// which is inside any sane password grace period.
+    @MainActor
+    static func runStartCycles(controller: DriftController, cycles: Int = 3) {
+        func published() -> String {
+            SharedStatusFile().readIfAvailable()?.display.text ?? "<no file>"
+        }
+
+        Task { @MainActor in
+            for cycle in 1...cycles {
+                controller.startDrift(status: .preset("lunch"), duration: .minutes(30))
+
+                var cameUp = false
+                for _ in 0..<40 {
+                    if ScreenSaverLauncher.isRunning { cameUp = true; break }
+                    try? await Task.sleep(for: .milliseconds(50))
+                }
+                let onScreen = published()
+                let active = controller.store.isActive
+                ScreenSaverLauncher.stop()
+                controller.endDrift(reason: "probe")
+                try? await Task.sleep(for: .milliseconds(600))
+                let afterEnd = published()
+
+                let verdict = (cameUp && active && onScreen == "Out for lunch" && afterEnd == "Away from desk")
+                    ? "PASS" : "FAIL"
+                print("PROBE  cycle \(cycle): \(verdict)  screensaver=\(cameUp ? "up" : "NOT UP")  showed=\"\(onScreen)\"  session=\(active ? "active" : "NOT ACTIVE")  after end=\"\(afterEnd)\"")
+                try? await Task.sleep(for: .milliseconds(400))
+            }
+            exit(0)
         }
     }
 }

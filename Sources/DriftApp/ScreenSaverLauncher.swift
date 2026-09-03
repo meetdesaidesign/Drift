@@ -83,11 +83,19 @@ enum ScreenSaverLauncher {
     /// screen untouched, and their failure mode is silence rather than an error — so Drift
     /// waits and looks instead of assuming.
     static func start() async throws {
-        if isRunning { return }
-
-        if let result = LoginFramework.startNow() {
-            try? await Task.sleep(for: .milliseconds(700))
-            if result == 0, isRunning { return }
+        // Deliberately no "already running, nothing to do" shortcut. Asking whether the
+        // screensaver is up and then acting on the answer is a race with no upside:
+        // starting one that is already running is harmless, and skipping the call because
+        // of a stale yes is how Start Drift ends up publishing a status over an ordinary
+        // desktop.
+        if let result = LoginFramework.startNow(), result == 0 {
+            // Measured on this Mac: SACScreenSaverIsRunning goes true about 4ms after the
+            // call. Polling rather than sleeping a fixed interval keeps a slower machine
+            // from being called a failure.
+            for _ in 0..<30 {
+                if isRunning { return }
+                try? await Task.sleep(for: .milliseconds(50))
+            }
         }
 
         // The pre-macOS-26 route, kept as a fallback rather than removed: it is the

@@ -181,6 +181,15 @@ holds the same glyph all afternoon.
 Every display gets its own instance of the screensaver, each reading the same file, so all
 of them show the same status.
 
+**Drift keeps the display awake while a session is running.** It has to: this Mac turns its
+display off after five minutes, and a sign on a dark screen is not a sign — that mismatch
+is what "it works sometimes" looks like from across a room. It holds
+`PreventUserIdleDisplaySleep`, the assertion a video player holds, and releases it the
+moment the session ends. It does not and cannot delay the Mac locking: the password clock
+starts when the screensaver does, and is untouched by this. Closing the lid or pressing the
+power button still sleeps the Mac immediately. The cost is that a laptop on battery keeps
+its screen lit while you are away.
+
 ## Starting the screensaver, and locking
 
 Start Drift does two things in order: publish the status, then start the screensaver. That
@@ -254,6 +263,23 @@ this Mac):
 
 That is all of it. There is nothing to configure about the statuses, the durations or the
 screen.
+
+## When it does not work
+
+`~/Library/Application Support/Drift/events.log` holds the last sixty things Drift did —
+sessions started, whether the screensaver came up, why a session ended. It records what
+Drift did, never what you typed. It exists because Drift has no window to report trouble in
+and the unified log needs Full Disk Access on this Mac, so without it an intermittent
+failure leaves nothing behind to look at.
+
+To exercise the real Start Drift path end to end, three times over:
+
+```bash
+DRIFT_PROBE=start build/Drift.app/Contents/MacOS/Drift
+```
+
+Each cycle takes the screen for under a second and reports whether the screensaver came up,
+what was on it, and what was published after the session ended.
 
 ## What Drift remembers
 

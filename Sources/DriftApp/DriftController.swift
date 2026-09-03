@@ -11,6 +11,7 @@ final class DriftController: ObservableObject {
     private var settingsWindow: NSWindow?
     private var observers: [NSObjectProtocol] = []
     private var returnWatch: Task<Void, Never>?
+    private let stayLit = StayLit()
 
     /// Set when Start Drift could not hand over to the screensaver. Shown in the popover
     /// rather than as an alert — and the session is ended, because a status nothing is
@@ -42,13 +43,19 @@ final class DriftController: ObservableObject {
     func startDrift(status: StatusChoice, duration: DurationChoice) {
         startError = nil
         guard store.start(status: status, duration: duration) else { return }
+        // Before the screensaver, not after: this Mac turns its display off after five
+        // minutes, and a sign on a dark screen is not a sign. See `StayLit`.
+        stayLit.hold()
         beginWatchingForReturn()
+        EventLog.append("start: session begun, starting the screensaver")
 
         Task {
             do {
                 try await ScreenSaverLauncher.start()
+                EventLog.append("start: screensaver is up")
             } catch {
                 startError = error.localizedDescription
+                EventLog.append("start FAILED: \(error.localizedDescription)")
                 endDrift()
             }
         }
@@ -59,9 +66,11 @@ final class DriftController: ObservableObject {
         store.extend(byMinutes: 10)
     }
 
-    func endDrift() {
+    func endDrift(reason: String = "asked") {
         returnWatch?.cancel()
         returnWatch = nil
+        stayLit.release()
+        if store.isActive { EventLog.append("end (\(reason))") }
         store.end()
     }
 
@@ -76,7 +85,7 @@ final class DriftController: ObservableObject {
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self, self.store.isActive else { return }
-                    self.endDrift()
+                    self.endDrift(reason: name)
                 }
             }
             observers.append(observer)
@@ -85,15 +94,18 @@ final class DriftController: ObservableObject {
 
     /// A backstop for the notifications above, which are Apple's and undocumented.
     ///
-    /// It watches for input rather than for the screensaver going away. Asking macOS
-    /// whether the screensaver is still up lags: `SACScreenSaverIsRunning` was measured
-    /// here still answering yes several seconds after it had been told to stop, and the
-    /// host process is no signal at all. Input is unambiguous — if the Mac has seen a key
-    /// or the trackpad in the last couple of seconds, you are sitting in front of it, and
-    /// the screensaver you had to dismiss to do that is gone.
+    /// It requires *both* signals: the screensaver is no longer up, and the Mac has seen
+    /// input in the last couple of seconds. Either one alone ends sessions that should
+    /// still be running.
     ///
-    /// `startupGrace` exists because starting Drift *is* input: without it the session
-    /// would end a second after it began.
+    /// Input alone is the dangerous one, and it was the bug: a bluetooth mouse nudged on
+    /// the desk, a USB device waking, anything at all, and Drift ended the session while
+    /// the screensaver was still on screen — so the sign quietly changed from "Out for
+    /// lunch" to "Away from desk" behind your back. Requiring the screensaver to be gone
+    /// too makes that impossible, because it is the thing you must dismiss to be back.
+    ///
+    /// The screensaver's absence alone is not enough either: it is briefly absent between
+    /// Start Drift and the screen being taken, which is what `startupGrace` covers.
     private func beginWatchingForReturn() {
         returnWatch?.cancel()
         returnWatch = Task { [weak self] in
@@ -104,8 +116,8 @@ final class DriftController: ObservableObject {
                 if Task.isCancelled { return }
                 guard let self, self.store.isActive else { return }
                 guard Date().timeIntervalSince(startedAt) > startupGrace else { continue }
-                if DriftController.secondsSinceInput() < 2 {
-                    self.endDrift()
+                if !ScreenSaverLauncher.isRunning, DriftController.secondsSinceInput() < 2 {
+                    self.endDrift(reason: "you came back")
                     return
                 }
             }
@@ -126,6 +138,7 @@ final class DriftController: ObservableObject {
     func applicationWillTerminate() {
         returnWatch?.cancel()
         returnWatch = nil
+        stayLit.release()
         for observer in observers {
             DistributedNotificationCenter.default().removeObserver(observer)
         }

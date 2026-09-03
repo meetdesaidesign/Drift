@@ -4,8 +4,7 @@ import SwiftUI
 import DriftCore
 #endif
 
-/// The Drift screen: a shop's "Sorry, we're closed" board, hung on two chains, saying
-/// where you went.
+/// The Drift screen: a shop's closed sign, hung on two chains, saying where you went.
 ///
 /// Drawn rather than drafted in: every part of it is a vector, so it is sharp on a
 /// laptop panel and on a 5K display, and there is no asset to ship inside a sandboxed
@@ -195,20 +194,17 @@ public struct DriftScreenView: View {
 
             content(m)
                 .padding(.horizontal, m.edgeInset + m.boardWidth * 0.07)
-                .padding(.vertical, m.edgeInset + m.boardHeight * 0.06)
+                .padding(.vertical, m.edgeInset + m.boardHeight * 0.09)
         }
-        .frame(width: m.boardWidth, height: m.boardHeight)
+        .frame(width: m.boardWidth)
+        // A taller board for a longer message rather than a squeezed one: a two-line sign
+        // gets the nominal height, and a three-line custom message gets a bigger board,
+        // the way a signwriter would have cut one. Past the ceiling the type shrinks.
+        .frame(minHeight: m.boardHeight, maxHeight: m.boardHeight * 1.5)
     }
 
     private func content(_ m: Metrics) -> some View {
         VStack(spacing: m.statusSize * 0.28) {
-            Text("Sorry")
-                // Snell Roundhand is a system font, so it is there inside the
-                // screensaver's sandbox too; SwiftUI falls back to the system face if a
-                // future macOS drops it.
-                .font(.custom("Snell Roundhand", size: m.scriptSize))
-                .foregroundStyle(DriftScreenView.primaryText)
-
             Text(display.text)
                 .font(.system(size: m.statusSize, weight: .semibold))
                 .tracking(m.statusSize * 0.01)
@@ -246,7 +242,6 @@ public struct DriftScreenView: View {
         let corner: CGFloat
         let edgeInset: CGFloat
         let edgeWidth: CGFloat
-        let scriptSize: CGFloat
         let statusSize: CGFloat
         let returnSize: CGFloat
 
@@ -258,7 +253,7 @@ public struct DriftScreenView: View {
             // across a room — so a board sized off the screen alone ends up as a mostly
             // empty rectangle on a 5K display. A sign is as big as its lettering needs.
             boardWidth = min(size.width * 0.44, size.height * 0.78, statusSize * 9.2)
-            boardHeight = boardWidth * 0.62
+            boardHeight = boardWidth * 0.48
             chainHeight = size.height * 0.10
             hookSize = max(minEdge * 0.022, 6)
             // Hung so the board's middle sits a little above the screen's, the way a sign
@@ -269,7 +264,6 @@ public struct DriftScreenView: View {
             corner = boardWidth * 0.028
             edgeInset = boardWidth * 0.035
             edgeWidth = max(minEdge * 0.0028, 1)
-            scriptSize = statusSize * 0.72
             returnSize = min(max(statusSize * 0.37, 10), 30)
         }
     }

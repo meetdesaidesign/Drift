@@ -166,29 +166,30 @@ screensaver host, and they take a moment to load the new bundle.
 
 ## The screen
 
-A shop's "Sorry, we're closed" board, hung on two chains from a screw eye, with your status
-painted on it:
+A shop's closed sign, hung on two chains from a screw eye, with your status painted on it:
 
 ```
                     ○
                  ╱     ╲
         ┌───────────────────────┐
-        │        Sorry          │
+        │                       │
         │     Out for lunch     │
         │  Back around 1:35 PM  │
+        │                       │
         └───────────────────────┘
 ```
 
 Every part of it is a vector — board, chains, screw eyes, painted edge — so there is no
 image asset to ship inside a sandboxed screensaver bundle and nothing to go soft on a
 Retina display. Solid `#0A0A0A` wall, board a shade off it, cream `#F2F2F0` lettering and
-`#8C8C87` for the return time, "Sorry" set in Snell Roundhand, the rest in SF Pro.
+`#8C8C87` for the return time, all of it SF Pro.
 
 The board is sized off the *lettering*, not the screen: the status is clamped at 78pt
 because past that it is no easier to read across a room, so a board sized off the screen
 alone would be a mostly empty rectangle on a 5K display. It comes out at about nine times
-the type size on every display — the same sign on a bigger wall. Long custom messages wrap
-to three lines inside the board and then shrink rather than clip.
+the type size on every display — the same sign on a bigger wall. A long custom message
+wraps to three lines and the board grows to take them, the way a signwriter would have cut
+a taller one; past that the type shrinks rather than clipping.
 
 **It swings.** A hanging sign only moves because something moved it, so this is a decaying
 pendulum rather than a loop: a 3° kick when the sign goes up — somebody just flipped it

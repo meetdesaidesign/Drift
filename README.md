@@ -1,31 +1,31 @@
 # Drift
 
-A small personal macOS utility. When you step away from your Mac, Drift shows whatever
-meeting you are in — or a custom status — in large, quiet type as your screensaver.
+A small personal macOS utility: a digital "Back soon" sign. When you leave your desk, Drift
+shows where you went, in large quiet type, as your screensaver.
 
 ```
-                              🍜
+   Out for lunch
 
-                        Out for lunch
-
-                     Back around 2:30 PM
+   Back around 1:35 PM
 ```
 
-It runs from the menu bar, has no Dock icon, no accounts, no backend and no analytics. It
-is built for one Mac: this one.
+Pick a status, pick how long, press Start Drift. That is the whole app. It runs from the
+menu bar, has no Dock icon, no accounts, no backend and no analytics. It is built for one
+Mac: this one.
 
 ## What it does
 
-- Shows a status full screen: large emoji, large status text, smaller return time, on deep
-  charcoal with a slow drifting glow.
-- Two sources: your **Calendar** (the meeting currently in progress, read locally via
-  EventKit), or a **Custom** status you type, with six editable one-click presets.
-- **Never shows an expired status.** When a status expires, when nothing is on your
-  calendar, or when private mode is on, it shows "Away from desk" instead.
-- **Nothing leaves this Mac.** No account, no token, no backend, and no network request
-  anywhere in Drift.
-- Ships as **both** a real macOS screensaver (`Drift.saver`) and a full-screen window you
-  can open on demand from the menu bar.
+- **Three taps to leave.** Four fixed statuses (Lunch, Break, Meeting, Away) or a one-line
+  custom message; a duration chip or a picked time; Start Drift.
+- **Shows it as a real screensaver**, so macOS can hold the lock behind it while your
+  status stays on screen.
+- **Never shows an outdated time.** Once the return time passes, the line becomes
+  "Expected back shortly" — but Drift keeps showing your status, because lunch running
+  long is still lunch.
+- **Ends when you come back.** Dismissing the screensaver ends the session; the menu-bar
+  icon goes back to hollow and the screen goes back to "Away from desk".
+- **Nothing leaves this Mac.** No account, no token, no backend, no network request, and
+  no access to your calendar, contacts or anything else macOS would have to ask about.
 
 ## Requirements
 
@@ -46,8 +46,8 @@ Then:
 open build/Drift.app
 ```
 
-Drift appears in the menu bar as 🌙 (or as your current status emoji). There is no Dock
-icon and no window — click the menu-bar item.
+Drift appears in the menu bar as a moon — hollow when idle, filled while a session is
+running. There is no Dock icon and no window; click the menu-bar item.
 
 To keep it around, drag `build/Drift.app` to `/Applications` or `~/Applications`. Launch at
 login only works from a stable location.
@@ -64,89 +64,58 @@ If you install Xcode later, `Package.swift` opens directly in it and will build 
 `DriftCore`. The two bundles would still be assembled by `build.sh`, since SwiftPM cannot
 produce a `.app` or a loadable `.saver`.
 
-## Your calendar as your status
-
-Switch the popover's source to **Calendar** and Drift shows whatever meeting is in progress:
+## The popover
 
 ```
-                              🗓️
-                        Design review
-                     Back around 3:30 PM
+Drift                                    ⚙
+
+What are you doing?
+┌────────────┐ ┌────────────┐
+│   Lunch    │ │   Break    │
+└────────────┘ └────────────┘
+┌────────────┐ ┌────────────┐
+│  Meeting   │ │   Away     │
+└────────────┘ └────────────┘
+Write a custom message…
+
+Back in
+[5m] [10m] [15m] [20m]
+[30m] [45m] [1 hr] [Custom]
+Back at 1:35 PM
+
+┌──────────────────────────┐
+│       Start Drift        │
+└──────────────────────────┘
 ```
 
-macOS will ask for Calendar permission the first time — Drift only asks at the point it
-actually needs it, so if you only ever use custom statuses you will never see the prompt.
-If you decline and change your mind, Settings › Calendar has a button through to
-**System Settings › Privacy & Security › Calendars**.
+Start Drift stays disabled until both a status and a duration are picked. Nothing else in
+the popover starts Drift — choosing a preset selects it and no more.
 
-### Google, iCloud, Exchange
+Return triggers Start Drift, Escape closes the popover, and Tab walks the buttons with a
+visible focus ring. Whatever you picked last is already selected the next time you open
+the popover; it is never acted on by itself.
 
-There is no Google Calendar integration, and there does not need to be one. Drift reads
-**every calendar in every account Calendar.app syncs** — so if your Google account is added
-in System Settings › Internet Accounts, Drift is already showing your Google meetings.
-Same for iCloud and Exchange. Settings › Calendar lists the accounts it can see, so you can
-check rather than guess.
+**Custom** under *Back in* reveals an hour-and-minute field, not a calendar. A time that
+has already gone by today means that time tomorrow.
 
-This is deliberate: it means Drift has no OAuth client, no stored token, no refresh loop and
-no network code at all. The syncing is macOS's problem, and macOS is better at it. To hide a
-calendar from Drift, uncheck it in Calendar.app.
-
-If you want to confirm what EventKit sees from a terminal:
+While a session is running the popover shows it instead of the form:
 
 ```
-./tools/list-calendars.sh
+Drift                                    ⚙
+
+Out for lunch
+Back at 1:35 PM
+
+┌──────────────────────────┐
+│        End Drift         │
+└──────────────────────────┘
+┌──────────────────────────┐
+│         +10 min          │
+└──────────────────────────┘
 ```
 
-It prints every account, its type, its calendars and how many events are in the next 24
-hours. Run it in **Terminal.app** — it needs to show a Calendars permission prompt, which
-cannot appear from a non-interactive shell.
-
-### When Drift and your calendar disagree
-
-If Drift says nothing is on your calendar and your calendar says otherwise, there are only
-three possible causes, and they need different fixes: the account is not in Calendar.app at
-all, the account is there but the event has not synced, or the event is there and one of
-Drift's own rules dropped it. Rather than guess, turn on the calendar dump:
-
-```
-touch ~/Library/Application\ Support/Drift/.debug-calendar
-open build/Drift.app
-cat ~/Library/Application\ Support/Drift/calendar-debug.txt
-```
-
-Drift then writes, on every calendar read, exactly what EventKit handed it: each account and
-its calendars, every event in ±24h with its dates, all-day flag, status and your RSVP, and a
-per-event verdict in Drift's own terms — "all-day — ignored by design", "has not started
-yet", "IN PROGRESS — eligible to be your status". The report ends with the answer the UI is
-showing, so a disagreement between the two is visible in one file.
-
-Delete the marker file to turn it off. Nothing is written without it.
-
-Note that `./build.sh` re-signs the app ad-hoc, which changes its code identity — so macOS
-treats a freshly built Drift as a new app and **asks for Calendar permission again**. That is
-expected after a rebuild, not a bug.
-
-How it decides:
-
-- Only a meeting **actually in progress** counts.
-- The meeting's **end time becomes both the return time and the expiry**, so the status
-  clears itself when the meeting does.
-- **All-day events are ignored** — "Q3 planning week" is not a reason you left your desk,
-  and it would sit there all day.
-- **Meetings you have declined are ignored**, as are cancelled ones.
-- When meetings **overlap, the one ending soonest wins** — that is the one you are most
-  likely actually in.
-- An **untitled event** shows "In a meeting" rather than a blank screen.
-- An **emoji is inferred from the title** — lunch, coffee, calls, 1:1s, focus blocks,
-  appointments, travel, PTO and so on — falling back to 🗓️.
-- Drift re-reads every two minutes, **and immediately whenever your calendar changes**.
-
-If the calendar read fails, Drift keeps showing the cached meeting — but only until its end
-time, after which it falls back to "Away from desk".
-
-Meeting titles can be sensitive. **Private mode** (Settings › General) makes Drift always
-show "Away from desk" instead, and it is enforced before anything is written to disk, so a
-real title never reaches the file the screensaver reads.
+`+10 min` extends from the return time while it is still ahead, and from now once it has
+passed — ten more minutes always means ten minutes from here.
 
 ## Installing the screensaver
 
@@ -161,59 +130,113 @@ restarts `WallpaperAgent` so macOS notices it.
 Then **open System Settings › Screen Saver and choose Drift**, which appears under
 **Other**. This step cannot be scripted on macOS 26 — the choice lives in a binary plist
 inside `~/Library/Application Support/com.apple.wallpaper/`, and writing to it by hand would
-mean rewriting your wallpaper configuration.
+mean rewriting your wallpaper configuration. Settings › Open macOS Screen Saver Settings
+takes you there, and Drift says so in Settings if the selection is missing.
 
 The screensaver reads whatever Drift last published to
-`~/Library/Application Support/Drift/status.json`. It reads no calendar and reaches no
-network — it runs inside macOS's sandboxed `legacyScreenSaver` host, and all it can do is
-read that one file. See [FEASIBILITY.md](FEASIBILITY.md) for how that was verified,
-including why the file works where an App Group cannot.
+`~/Library/Application Support/Drift/status.json`. It reaches no network and reads nothing
+else — it runs inside macOS's sandboxed `legacyScreenSaver` host, and all it can do is read
+that one file. See [FEASIBILITY.md](FEASIBILITY.md) for how that was verified, including
+why the file works where an App Group cannot.
 
 After a rebuild, re-run `./install-saver.sh` to replace the installed copy.
 
-### If you would rather not use the screensaver
+## The screen
 
-Everything works without it. **Show Drift** in the menu-bar popover opens the same visual
-as a full-screen window across all your displays, and Settings › General can open it
-automatically after a chosen period of inactivity.
+Solid `#0A0A0A`, text in `#F2F2F0` and `#8C8C87`, SF Pro, left-aligned slightly left of and
+below centre. No gradient, no card, no illustration, no emoji. The status sits at 64–80pt
+and the return line at 24–30pt, scaled off the shorter screen edge so the same layout holds
+on a laptop panel, a 5K display, a portrait monitor and the thumbnail preview in System
+Settings. Long custom messages wrap and then shrink rather than clip.
 
-That window is a plain app window: it never draws a password field or an unlock prompt, it
-takes no power assertions and changes no energy settings, so it cannot imitate the macOS
-lock screen and cannot delay or prevent your Mac from locking or sleeping normally. It
-closes on any key, click, scroll or mouse movement, and closes itself if the screen locks
-or the Mac sleeps.
+The text wanders about 14pt over roughly seven minutes as burn-in insurance. That is a
+fifth of a point per second: far below what reads as movement, far enough that no pixel
+holds the same glyph all afternoon.
+
+Every display gets its own instance of the screensaver, each reading the same file, so all
+of them show the same status.
+
+## Starting the screensaver, and locking
+
+Start Drift does two things in order: publish the status, then start the screensaver. That
+order is the whole trick — `status.json` is written synchronously before the engine
+launches, so the saver comes up already showing the status you just picked rather than the
+previous one. If the engine fails to start, Drift ends the session rather than leaving you
+believing your Mac is showing a status it is not, and says so the next time you open the
+popover.
+
+**The screensaver is the only way to do this**, and it is worth being precise about why. An
+ordinary app window runs in your logged-in session, so while it is up the Mac is by
+definition *not* locked. The screensaver is the other way round: macOS draws it *over* a
+locked session, so `Drift.saver` goes on showing your status while the Mac is genuinely
+locked behind it. There is no third option — no app can draw on the macOS lock screen
+itself, because `loginwindow` renders it in a session of its own.
+
+Drift does not touch any security setting to make this work. Whether a password is required
+after the screensaver begins, and after how long, is macOS's own **Require password after
+screen saver begins** in System Settings › Lock Screen. To see what it will actually do
+here, from a terminal and without launching the app:
+
+```bash
+./tools/test-screensaver.sh
+```
+
+That reports everything that has to be true: the engine is present, `Drift.saver` is
+installed *and selected*, whether a password is required and after how long, and when the
+display sleeps. `--start` also starts the screensaver for one second.
+
+### Two things that will make this look broken
+
+**macOS ships its own screensaver also called Drift**, at
+`/System/Library/ExtensionKit/Extensions/Drift.appex`. Picking the wrong one in System
+Settings gives you Apple's abstract lines and no status, with nothing to indicate a mix-up.
+Drift's is the one under **Other**; `tools/test-screensaver.sh` tells the two apart by path
+rather than by name.
+
+**If the display sleeps before the screensaver starts, nobody ever sees your status.** The
+two timers are independent, and the screensaver needs a lit screen. Display sleep has to be
+the later of the two. Read both with the tool rather than with `defaults`: a configuration
+profile delivers these into `/Library/Managed Preferences`, which
+`defaults read com.apple.screensaver` does not look at, so it will happily report a local
+value the system is overriding. When they are profile-managed, changing them locally will
+not hold and it is a question for whoever manages the Mac.
 
 ## Launch at login
 
-Settings › General → **Launch Drift at login**. This uses `SMAppService`, so macOS may ask
-you to approve it in System Settings › General › Login Items.
+Settings → **Launch Drift at login**. This uses `SMAppService`, so macOS may ask you to
+approve it in System Settings › General › Login Items.
 
 Two caveats, both a consequence of Drift being ad-hoc signed (there is no Developer ID on
 this Mac):
 
 - Move `Drift.app` to `/Applications` or `~/Applications` first. From a build directory the
-  status may read "Unavailable".
+  registration may be unavailable.
 - Rebuilding changes the code signature, which can invalidate the registration. If Drift
-  stops launching at login after a rebuild, toggle it off and on again. The same is true of
-  the Calendar permission: a rebuild can make macOS ask again.
+  stops launching at login after a rebuild, toggle it off and on again.
 
 ## Settings
 
 | | |
 |---|---|
-| **Launch at login** | via `SMAppService`, with the live status shown |
-| **Default source** | Calendar or Custom on startup |
-| **Fallback text** | what to show when there is nothing valid; default "Away from desk" |
-| **Show return time** | show or hide the "Back around …" line |
-| **Private mode** | always show the fallback, never the real status |
-| **Idle activation** | optional delay before the full-screen window opens by itself |
-| **Preview Drift** | opens the full-screen view without syncing first |
-| **Calendar** | access state, what is on now, last check, errors, and how the rules work |
-| **Presets** | add, edit, remove and reset the one-click presets |
+| **Launch Drift at login** | via `SMAppService` |
+| **Show return time on Drift screen** | show or hide the "Back around …" line |
+| **Open macOS Screen Saver Settings** | where `Drift.saver` has to be selected by hand |
+| **About Drift** | the standard macOS about panel |
+| **Quit Drift** | |
 
-Private mode is enforced where it counts: Drift resolves the status *before* writing
-`status.json`, so with private mode on your real status text never reaches that file at
-all. There is a test for this.
+That is all of it. There is nothing to configure about the statuses, the durations or the
+screen.
+
+## What Drift remembers
+
+Two things, both in `co.drift.app` preferences: the last status and duration you picked,
+and the one setting above. **A running session is not one of them** — it lives in memory
+only, and quitting Drift publishes "Away from desk". If Drift is not running, nothing can
+end a session, so nothing should be claiming one.
+
+Should Drift be killed outright while a session is live, `status.json` is left behind
+saying so. The screensaver stops believing such a payload twelve hours past its return
+time, which is the one case where a session ends without Drift's help.
 
 ## Known limitations on this Mac
 
@@ -222,16 +245,13 @@ all. There is a test for this.
   launch-at-login re-toggled.
 - The deployment target is macOS 15.0, pinned by the CLT's MacOSX15.5 SDK, even though this
   Mac runs 26.5.
-- Calendar emoji are inferred from event titles by keyword. Unmatched titles get 🗓️.
-- Rebuilding may make macOS re-ask for Calendar permission, since the code signature
-  changes.
-- Selecting the screensaver, testing lock/wake, checking a second display, and granting
-  Calendar access all need you — [FEASIBILITY.md](FEASIBILITY.md) lists them explicitly.
+- Selecting the screensaver, and testing lock, wake and a second display, need you —
+  [FEASIBILITY.md](FEASIBILITY.md) lists them explicitly.
 
 ## Uninstalling
 
 ```bash
-# 1. Quit Drift (menu-bar item -> Quit), then turn off launch at login in Settings first,
+# 1. Quit Drift (menu-bar item -> gear -> Quit Drift), and turn off launch at login first,
 #    or remove it manually afterwards in System Settings > General > Login Items.
 
 # 2. Remove the screensaver, and pick a different screensaver in System Settings first.
@@ -243,13 +263,13 @@ rm -rf /Applications/Drift.app ~/Applications/Drift.app   # wherever you put it
 # 4. Remove the published status file and its folder.
 rm -rf ~/Library/Application\ Support/Drift
 
-# 5. Remove preferences (custom status, settings, presets, cached calendar status).
+# 5. Remove preferences (the remembered choices and the one setting).
 defaults delete co.drift.app
 killall cfprefsd
 ```
 
 Drift stores nothing else: no token, no Keychain item, no caches outside the two locations
-above. Revoke its Calendar access in System Settings › Privacy & Security › Calendars.
+above, and no permissions to revoke.
 
 ## Layout
 
@@ -259,27 +279,32 @@ build.sh                      builds Drift.app and Drift.saver with swiftc
 install-saver.sh              installs Drift.saver into ~/Library/Screen Savers
 Sources/
   DriftCore/                  pure Foundation, no AppKit — the testable half
-    DriftStatus.swift            the model, and every display rule in one function
-    DriftSettings.swift          settings and presets
-    StatusStore.swift            state, persistence, sync scheduling, publishing
-    CalendarStatus.swift         event -> status rules, and title -> emoji (pure, no EventKit)
+    DriftSession.swift           the model, the display rule, and the wording
+    DriftSettings.swift          the setting, the four presets, the durations
+    StatusStore.swift            state, persistence, publishing
     SharedStatusFile.swift       status.json — the app/screensaver contract
   DriftShared/
-    DriftScreenView.swift        the one full-screen visual, used by both bundles
+    DriftScreenView.swift        the screen itself
   DriftApp/
-    DriftAppMain.swift, AppDelegate.swift, DriftController.swift,
-    MenuBarView.swift, SettingsView.swift, CalendarClient.swift (EventKit lives here only),
-    FullScreenPresenter.swift, IdleMonitor.swift, LaunchAtLogin.swift
+    DriftAppMain.swift           AppKit entry point
+    AppDelegate.swift            launch, teardown, and the invisible main menu
+    MenuBarController.swift      the status item and the popover
+    PopoverView.swift            the setup form and the active session
+    DriftController.swift        starting, ending, and noticing you came back
+    SettingsView.swift           five rows
+    ScreenSaverLauncher.swift    starting the screensaver; is Drift.saver selected?
+    LaunchAtLogin.swift          SMAppService
   DriftSaver/
     DriftScreenSaverView.swift   the ScreenSaverView subclass
 tools/
   saver-loadtest.swift        loads the .saver the way macOS does; renders frames
-  render-ui.sh                renders the app's views offscreen
-  list-calendars.sh           prints the calendar accounts EventKit can see
+  render-ui.sh                renders the app's views offscreen, in both appearances
+  test-screensaver.sh         checks what Start Drift will actually do on this Mac
   verify-end-to-end.sh        app -> status.json -> .saver, using the real binaries
 ```
 
 `DriftScreenView` takes an explicit `phase` in seconds rather than using SwiftUI's
 animation engine, because implicit SwiftUI animation cannot be relied on to tick inside
-`legacyScreenSaver`. The app feeds `phase` from a `TimelineView`; the screensaver feeds it
-from `animateOneFrame()`. One view, two hosts, no duplicated visual.
+`legacyScreenSaver`; the screensaver feeds `phase` from `animateOneFrame()`. It also takes
+`now` rather than reading the clock, so the return line can be rendered deterministically
+in tests and in the offscreen renders.

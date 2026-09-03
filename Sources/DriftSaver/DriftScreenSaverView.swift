@@ -8,8 +8,7 @@ private let log = Logger(subsystem: "co.drift.saver", category: "screensaver")
 /// Drift's real macOS screensaver.
 ///
 /// It is deliberately dumb: it reaches no network, reads no calendar and writes nothing.
-/// All it does
-/// is read the resolved status Drift published to
+/// All it does is read the resolved status Drift published to
 /// `~/Library/Application Support/Drift/status.json` and render it. That matters because
 /// this class runs inside `legacyScreenSaver`, which is sandboxed — it has read-only
 /// access to the filesystem and no business holding a token.
@@ -21,20 +20,32 @@ public final class DriftScreenSaverView: ScreenSaverView {
     private var payload: SharedPayload?
     private var phase: Double = 0
     private var framesSinceReload = 0
+    private var framesSinceRefresh = 0
     private var lastModified: Date?
 
-    /// 30fps is plenty for a slow gradient, and keeps the sandboxed process cheap.
-    private static let fps: Double = 30
-    /// Re-read status.json about every 2s so a status edited mid-session appears.
-    private static let reloadEveryFrames = 60
+    /// Nothing on this screen moves quickly, so the frame rate only has to be smooth
+    /// enough for the one-second fade-in.
+    private static let fps: Double = 20
+    /// Re-read status.json about every two seconds, so a status extended with "+10 min"
+    /// appears without waiting.
+    private static let reloadEveryFrames = 40
+    /// Rebuild the SwiftUI view about every 1.5s once the fade-in is done. The burn-in
+    /// drift moves a fifth of a point per second — redrawing it 20 times a second would
+    /// be 20 times the work for no visible difference.
+    private static let refreshEveryFrames = 30
+    private static let fadeInSeconds: Double = 1.2
+
+    private static let backgroundColour = NSColor(
+        calibratedRed: 0.0392, green: 0.0392, blue: 0.0392, alpha: 1
+    )
 
     public override init?(frame: NSRect, isPreview: Bool) {
         super.init(frame: frame, isPreview: isPreview)
         animationTimeInterval = 1.0 / DriftScreenSaverView.fps
         wantsLayer = true
-        layer?.backgroundColor = NSColor(calibratedRed: 0.055, green: 0.059, blue: 0.070, alpha: 1).cgColor
+        layer?.backgroundColor = DriftScreenSaverView.backgroundColour.cgColor
 
-        reload(force: true)
+        _ = reload(force: true)
 
         hostingView = NSHostingView(rootView: makeRootView())
         hostingView.frame = bounds
@@ -54,30 +65,32 @@ public final class DriftScreenSaverView: ScreenSaverView {
     private func makeRootView() -> DriftScreenView {
         let now = Date()
         let display = payload?.displayNow(now)
-            ?? DisplayStatus(text: DriftSettings.defaultFallbackText, updatedAt: now)
-        return DriftScreenView(display: display, phase: phase)
+            ?? DisplayStatus(text: DriftSettings.idleText, updatedAt: now)
+        return DriftScreenView(display: display, phase: phase, now: now)
     }
 
     private func refreshRootView() {
+        framesSinceRefresh = 0
         hostingView?.rootView = makeRootView()
     }
 
     /// Reads the published status. Only rebuilds the SwiftUI view when the file actually
     /// changed, so the common case costs one stat() per couple of seconds.
-    private func reload(force: Bool) {
+    private func reload(force: Bool) -> Bool {
         let modified = sharedFile.modificationDate()
-        if !force, let modified, let lastModified, modified == lastModified { return }
+        if !force, let modified, let lastModified, modified == lastModified { return false }
         lastModified = modified
 
         if let fresh = sharedFile.readIfAvailable() {
             payload = fresh
             log.log("Read published status (\(fresh.display.text.count, privacy: .public) chars of text)")
         } else {
-            // No file yet, or unreadable. Showing the fallback is the correct behaviour
-            // here — it is exactly the "nothing valid to show" case.
+            // No file yet, or unreadable. Showing "Away from desk" is the correct
+            // behaviour here — it is exactly the "nothing to show" case.
             payload = nil
             log.log("No readable status file at \(self.sharedFile.url.path, privacy: .public); showing fallback")
         }
+        return true
     }
 
     // MARK: ScreenSaverView
@@ -86,7 +99,7 @@ public final class DriftScreenSaverView: ScreenSaverView {
         super.startAnimation()
         phase = 0
         framesSinceReload = 0
-        reload(force: true)
+        _ = reload(force: true)
         refreshRootView()
         log.log("startAnimation")
     }
@@ -98,24 +111,30 @@ public final class DriftScreenSaverView: ScreenSaverView {
 
     public override func animateOneFrame() {
         phase += animationTimeInterval
-
         framesSinceReload += 1
+        framesSinceRefresh += 1
+
         if framesSinceReload >= DriftScreenSaverView.reloadEveryFrames {
             framesSinceReload = 0
-            let before = payload?.display
-            reload(force: false)
-            // An expiry crossing changes what should be on screen without the file
-            // changing at all, so the view is refreshed either way below.
-            _ = before
+            if reload(force: false) {
+                refreshRootView()
+                return
+            }
         }
 
-        refreshRootView()
+        // Every frame while fading in; occasionally after that — the return line has to
+        // keep up with the clock, since "Back around 1:35 PM" becomes "Expected back
+        // shortly" on its own.
+        if phase <= DriftScreenSaverView.fadeInSeconds
+            || framesSinceRefresh >= DriftScreenSaverView.refreshEveryFrames {
+            refreshRootView()
+        }
     }
 
     public override func draw(_ rect: NSRect) {
         // The SwiftUI hosting view draws everything; this only paints the backing colour
         // for the instant before it appears.
-        NSColor(calibratedRed: 0.055, green: 0.059, blue: 0.070, alpha: 1).setFill()
+        DriftScreenSaverView.backgroundColour.setFill()
         rect.fill()
     }
 

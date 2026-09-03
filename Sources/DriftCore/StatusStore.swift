@@ -1,131 +1,102 @@
 import Combine
 import Foundation
 
-/// Whether Drift can actually read the Calendar, which is a permission question rather
-/// than a connection one — there is no network involved.
-public enum CalendarAccess: Equatable, Sendable {
-    case notDetermined
-    case denied
-    case authorized
-    /// Access was granted but the last read failed.
-    case failing(String)
-}
-
-/// Drift's single piece of state. Owns the custom status, the cached Calendar status, the
-/// settings and the presets; persists them to UserDefaults; and republishes the resolved
-/// status to the file the screensaver reads.
+/// Drift's single piece of state: the away session, if one is running, plus the two
+/// choices the popover remembers between visits.
+///
+/// It persists to UserDefaults and republishes the resolved status to the file the
+/// screensaver reads.
 @MainActor
 public final class StatusStore: ObservableObject {
 
     // MARK: Published state
 
     @Published public private(set) var settings: DriftSettings
-    @Published public private(set) var customStatus: DriftStatus
-    @Published public private(set) var cachedCalendarStatus: DriftStatus?
-    @Published public private(set) var presets: [DriftPreset]
-    @Published public private(set) var source: DriftStatus.Source
-    @Published public private(set) var calendarAccess: CalendarAccess = .notDetermined
-    @Published public private(set) var lastSyncDate: Date?
-    @Published public private(set) var lastCalendarError: String?
-    @Published public private(set) var isSyncing = false
-    /// The resolved status, republished whenever anything changes or a status expires.
-    /// The UI observes this rather than calling `display()`, which is a plain method and
-    /// therefore invisible to SwiftUI.
-    @Published public private(set) var currentDisplay: DisplayStatus = DisplayStatus(text: DriftSettings.defaultFallbackText)
+    /// The running session, or `nil` when Drift is idle.
+    @Published public private(set) var session: DriftSession?
+    /// What the screen would show right now. The UI observes this rather than calling
+    /// `display()`, which is a plain method and therefore invisible to SwiftUI.
+    @Published public private(set) var currentDisplay: DisplayStatus
+    /// Remembered so reopening the popover has your last choice already selected. Never
+    /// acted on by itself — Drift does not start on its own.
+    @Published public private(set) var lastStatus: StatusChoice?
+    @Published public private(set) var lastDuration: DurationChoice?
 
     // MARK: Dependencies
 
     private let defaults: UserDefaults
     private let sharedFile: SharedStatusFile
-    /// Supplies the events currently in the Mac's Calendar.
-    ///
-    /// Injected rather than built here for two reasons: it keeps EventKit — and the
-    /// calendar permission prompt — out of DriftCore and out of the screensaver bundle,
-    /// and it lets the tests simulate a denied permission or a read failure with no
-    /// calendar involved. `DriftApp` passes the real `CalendarClient`; the default
-    /// returns nothing.
-    private let fetchEvents: @Sendable () async throws -> [CalendarEvent]
+    private var lastPublished: SharedPayload?
 
-    private var ticker: Task<Void, Never>?
-    private var lastPublished: DisplayStatus?
-
-    public static let calendarSyncInterval: TimeInterval = 120
-    private static let tickInterval: TimeInterval = 15
-
-    public init(
-        defaults: UserDefaults = .standard,
-        sharedFile: SharedStatusFile = SharedStatusFile(),
-        fetchEvents: @escaping @Sendable () async throws -> [CalendarEvent] = { [] }
-    ) {
+    public init(defaults: UserDefaults = .standard, sharedFile: SharedStatusFile = SharedStatusFile()) {
         self.defaults = defaults
         self.sharedFile = sharedFile
-        self.fetchEvents = fetchEvents
 
         let loadedSettings = Keys.decode(DriftSettings.self, from: defaults, key: Keys.settings) ?? DriftSettings()
         self.settings = loadedSettings
-        self.presets = Keys.decode([DriftPreset].self, from: defaults, key: Keys.presets) ?? DriftPreset.starters
-        self.customStatus = Keys.decode(DriftStatus.self, from: defaults, key: Keys.customStatus)
-            ?? DriftStatus(text: "", emoji: "", source: .custom)
-        self.cachedCalendarStatus = Keys.decode(DriftStatus.self, from: defaults, key: Keys.cachedCalendar)
-        self.source = (defaults.string(forKey: Keys.source).flatMap(DriftStatus.Source.init(rawValue:)))
-            ?? loadedSettings.defaultSource
-        self.lastSyncDate = defaults.object(forKey: Keys.lastSync) as? Date
-        self.currentDisplay = resolveDisplay(
-            status: self.source == .calendar ? self.cachedCalendarStatus : self.customStatus,
-            now: Date(), settings: self.settings
-        )
+        self.lastStatus = Keys.decode(StatusChoice.self, from: defaults, key: Keys.lastStatus)
+        self.lastDuration = Keys.decode(DurationChoice.self, from: defaults, key: Keys.lastDuration)
+        // A session deliberately does not survive a restart. If Drift is not running,
+        // nobody is being told you are away, so claiming a session on the next launch
+        // would only resurrect yesterday's lunch.
+        self.session = nil
+        self.currentDisplay = resolveDisplay(session: nil, settings: loadedSettings)
         Keys.removeRetiredKeys(from: defaults)
     }
 
     // MARK: Derived state
 
-    /// The status currently selected by the source picker, before any rules are applied.
-    public var activeStatus: DriftStatus? {
-        source == .calendar ? cachedCalendarStatus : customStatus
-    }
+    public var isActive: Bool { session != nil }
 
     public func display(now: Date = Date()) -> DisplayStatus {
-        resolveDisplay(status: activeStatus, now: now, settings: settings)
+        resolveDisplay(session: session, settings: settings, now: now)
     }
 
-    // MARK: Mutations
+    // MARK: Remembering the choices
 
-    public func setSource(_ newSource: DriftStatus.Source) {
-        source = newSource
-        defaults.set(newSource.rawValue, forKey: Keys.source)
-        publish()
+    /// Records a pick without acting on it, so closing the popover and coming back
+    /// leaves you where you were.
+    public func remember(status: StatusChoice) {
+        lastStatus = status
+        Keys.encode(status, to: defaults, key: Keys.lastStatus)
     }
 
-    public func updateCustomStatus(
-        text: String? = nil,
-        emoji: String? = nil,
-        returnTime: Date?? = nil,
-        expiresAt: Date?? = nil
-    ) {
-        if let text { customStatus.text = text }
-        if let emoji { customStatus.emoji = emoji }
-        if let returnTime { customStatus.returnTime = returnTime }
-        if let expiresAt { customStatus.expiresAt = expiresAt }
-        customStatus.source = .custom
-        customStatus.updatedAt = Date()
-        persistCustomStatus()
-        publish()
+    public func remember(duration: DurationChoice) {
+        lastDuration = duration
+        Keys.encode(duration, to: defaults, key: Keys.lastDuration)
     }
 
-    public func applyPreset(_ preset: DriftPreset) {
-        customStatus.emoji = preset.emoji
-        customStatus.text = preset.text
-        customStatus.source = .custom
-        customStatus.updatedAt = Date()
-        setSource(.custom)
-        persistCustomStatus()
-        publish()
+    // MARK: The session
+
+    /// Starts a session and publishes it. Returns `false` — and starts nothing — if the
+    /// choice has no text to show, which is the empty custom message case.
+    @discardableResult
+    public func start(status: StatusChoice, duration: DurationChoice, now: Date = Date()) -> Bool {
+        guard let text = status.text else { return false }
+        remember(status: status)
+        remember(duration: duration)
+        session = DriftSession(
+            text: text,
+            returnTime: duration.returnTime(from: now),
+            startedAt: now
+        )
+        publish(now: now, force: true)
+        return true
     }
 
-    public func clearCustomStatus() {
-        customStatus = DriftStatus(text: "", emoji: "", source: .custom)
-        persistCustomStatus()
-        publish()
+    /// "+10 min". Extends from the return time if it is still ahead, and from now if it
+    /// has already gone by — ten more minutes should always mean ten minutes from here.
+    public func extend(byMinutes minutes: Int, now: Date = Date()) {
+        guard var session else { return }
+        session.returnTime = max(session.returnTime, now).addingTimeInterval(Double(minutes) * 60)
+        self.session = session
+        publish(now: now, force: true)
+    }
+
+    public func end(now: Date = Date()) {
+        guard session != nil else { return }
+        session = nil
+        publish(now: now, force: true)
     }
 
     public func updateSettings(_ mutate: (inout DriftSettings) -> Void) {
@@ -134,112 +105,52 @@ public final class StatusStore: ObservableObject {
         publish()
     }
 
-    public func updatePresets(_ newPresets: [DriftPreset]) {
-        presets = newPresets
-        Keys.encode(presets, to: defaults, key: Keys.presets)
-    }
-
-    private func persistCustomStatus() {
-        Keys.encode(customStatus, to: defaults, key: Keys.customStatus)
-    }
-
-    // MARK: Calendar
-
-    /// Reads the Calendar and caches whatever meeting is in progress.
-    ///
-    /// The offline/failure rule lives here: if the read fails, the cached status is left
-    /// alone, so it keeps being used right up until the meeting's end time — at which
-    /// point `resolveDisplay` swaps in the fallback text on its own.
-    public func syncCalendar(now: Date = Date()) async {
-        isSyncing = true
-        defer { isSyncing = false }
-
-        do {
-            let events = try await fetchEvents()
-            cachedCalendarStatus = CalendarStatus.status(from: events, now: now)
-            if let cachedCalendarStatus {
-                Keys.encode(cachedCalendarStatus, to: defaults, key: Keys.cachedCalendar)
-            } else {
-                // Nothing in progress — clear the cache so an old meeting is not resurrected.
-                defaults.removeObject(forKey: Keys.cachedCalendar)
-            }
-            lastSyncDate = now
-            defaults.set(now, forKey: Keys.lastSync)
-            lastCalendarError = nil
-            calendarAccess = .authorized
-        } catch let error as CalendarSourceError {
-            lastCalendarError = error.errorDescription
-            switch error {
-            case .accessDenied: calendarAccess = .denied
-            case .accessNotDetermined: calendarAccess = .notDetermined
-            case .readFailed: calendarAccess = .failing(error.errorDescription ?? "Calendar read failed")
-            }
-        } catch {
-            lastCalendarError = error.localizedDescription
-            calendarAccess = .failing(error.localizedDescription)
-        }
-        publish(now: now)
-    }
-
     // MARK: Publishing to the screensaver
 
     /// Writes the resolved status to `~/Library/Application Support/Drift/status.json`.
-    /// Only writes when the resolved payload actually changed, because the saver polls it.
+    /// Only writes when the payload actually changed, because the saver polls it.
     public func publish(now: Date = Date(), force: Bool = false) {
         let resolved = display(now: now)
         if currentDisplay != resolved { currentDisplay = resolved }
-        if !force, let lastPublished, lastPublished == resolved { return }
-        lastPublished = resolved
-        let payload = SharedPayload(display: resolved, fallbackText: settings.fallbackText, writtenAt: now)
+
+        let payload = SharedPayload(
+            display: resolved,
+            fallbackText: DriftSettings.idleText,
+            sessionReturnTime: session?.returnTime,
+            writtenAt: now
+        )
+        if !force, let lastPublished,
+           lastPublished.display == payload.display,
+           lastPublished.sessionReturnTime == payload.sessionReturnTime {
+            return
+        }
+        lastPublished = payload
         do {
             try sharedFile.write(payload)
         } catch {
-            // Nothing useful to do here — the screensaver just keeps showing the last
-            // payload, and the fallback window reads state directly from this store.
+            // Nothing useful to do here — the screensaver keeps showing the last payload.
             NSLog("Drift: could not write shared status file: \(error.localizedDescription)")
         }
-    }
-
-    // MARK: Tickers
-
-    /// One timer drives two things: republishing (so an expiring status flips to
-    /// "Away from desk" on its own) and the two-minute Calendar re-read.
-    public func startTickers() {
-        ticker?.cancel()
-        let ticksPerSync = Int((StatusStore.calendarSyncInterval / StatusStore.tickInterval).rounded())
-        ticker = Task { [weak self] in
-            var tick = 0
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(StatusStore.tickInterval))
-                if Task.isCancelled { return }
-                guard let self else { return }
-                tick += 1
-                self.publish()
-                if tick % ticksPerSync == 0 {
-                    await self.syncCalendar()
-                }
-            }
-        }
-    }
-
-    public func stopTickers() {
-        ticker?.cancel()
-        ticker = nil
     }
 
     // MARK: UserDefaults keys
 
     enum Keys {
         static let settings = "drift.settings"
-        static let presets = "drift.presets"
-        static let customStatus = "drift.customStatus"
-        static let cachedCalendar = "drift.cachedCalendarStatus"
-        static let source = "drift.source"
-        static let lastSync = "drift.lastSyncDate"
+        static let lastStatus = "drift.lastStatus"
+        static let lastDuration = "drift.lastDuration"
 
-        /// Left over from the Slack-based version. Cleared once on load so a stale
-        /// cached Slack status cannot linger in preferences.
-        static let retired = ["drift.cachedSlackStatus"]
+        /// Left over from earlier versions — the Slack status, then the calendar cache,
+        /// editable presets and the custom-status draft. Cleared once on load so none of
+        /// it can linger in preferences after the features that wrote it are gone.
+        static let retired = [
+            "drift.cachedSlackStatus",
+            "drift.cachedCalendarStatus",
+            "drift.customStatus",
+            "drift.presets",
+            "drift.source",
+            "drift.lastSyncDate",
+        ]
 
         static func removeRetiredKeys(from defaults: UserDefaults) {
             for key in retired where defaults.object(forKey: key) != nil {

@@ -2,30 +2,46 @@ import Foundation
 
 /// What Drift writes for the screensaver to read.
 ///
-/// Only the *resolved* status goes in here, which means private mode and expiry are
-/// already applied — the real status text never reaches this file when private mode
-/// is on.
+/// Only the *resolved* status goes in here, so the screensaver never has a rule to
+/// apply — it reads this and draws it.
 public struct SharedPayload: Codable, Sendable {
-    public static let currentSchema = 1
+    public static let currentSchema = 2
+
+    /// How long after the return time a payload stops being believed.
+    ///
+    /// A running session never expires — that is the point of Drift. This guard is only
+    /// for the case where Drift stopped running without ending its session (a crash, a
+    /// force-quit): without it, `status.json` would claim you were at lunch indefinitely,
+    /// and every idle screensaver from then on would say so.
+    public static let staleAfter: TimeInterval = 12 * 60 * 60
 
     public var schema: Int
     public var display: DisplayStatus
-    /// Carried so the saver can substitute correctly on its own if the payload has expired.
+    /// What to show when there is nothing to show.
     public var fallbackText: String
+    /// The live session's return time, present even when the return time is hidden on
+    /// screen. Used only by the staleness guard below.
+    public var sessionReturnTime: Date?
     public var writtenAt: Date
 
-    public init(display: DisplayStatus, fallbackText: String, writtenAt: Date = Date()) {
+    public init(
+        display: DisplayStatus,
+        fallbackText: String = DriftSettings.idleText,
+        sessionReturnTime: Date? = nil,
+        writtenAt: Date = Date()
+    ) {
         self.schema = SharedPayload.currentSchema
         self.display = display
         self.fallbackText = fallbackText
+        self.sessionReturnTime = sessionReturnTime
         self.writtenAt = writtenAt
     }
 
-    /// The saver's last line of defence: if Drift died while a status was live, the
-    /// payload on disk can still go stale, so expiry is re-checked at render time.
+    /// The saver's last line of defence — see `staleAfter`.
     public func displayNow(_ now: Date) -> DisplayStatus {
-        if let expiresAt = display.expiresAt, expiresAt <= now {
-            return DisplayStatus(emoji: "", text: fallbackText, subtitle: nil, expiresAt: nil, updatedAt: now)
+        let reference = sessionReturnTime ?? display.returnTime
+        if let reference, now.timeIntervalSince(reference) > SharedPayload.staleAfter {
+            return DisplayStatus(text: fallbackText, returnTime: nil, updatedAt: now)
         }
         return display
     }

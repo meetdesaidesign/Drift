@@ -3,9 +3,10 @@
 Findings from the spike that ran before Drift was built, plus what was verified afterwards
 against the finished bundles.
 
-**Verdict: the real `.saver` works on this machine, and it is the primary implementation.**
-The full-screen window is built too, but as an on-demand feature ("Show Drift", "Preview",
-optional show-on-idle) rather than as a fallback for a broken screensaver.
+**Verdict: the real `.saver` works on this machine, and it is the only implementation.**
+An on-demand full-screen window was also built at one point; it was removed, because it
+cannot do the one thing that matters — a window in your logged-in session is by definition
+not a locked Mac.
 
 ## This machine
 
@@ -117,32 +118,44 @@ grant myself.
    `~/Library/Screen Savers` until that pane is opened, which is why nothing referenced
    `Drift.saver` in the wallpaper store immediately after installing.
 2. **Starting, exiting, locking and waking.** Needs a real screensaver activation.
+   This also covers the one link in **Start Drift** that cannot be settled by reading code:
+   whether launching `/System/Library/CoreServices/ScreenSaverEngine.app` still activates
+   the screensaver on this macOS. It has changed between releases, and its failure mode is
+   to launch and immediately exit rather than to return an error — so `ScreenSaverLauncher`
+   waits and re-checks the process list instead of trusting the launch, and reports
+   "macOS did not start the screensaver" if it is gone. Verify with
+   `./tools/test-screensaver.sh --start`, which takes the screen for one second.
 3. **A second display.** This Mac had one display attached during the build.
-4. **The menu-bar popover's exact appearance.** `screencapture` fails with
+4. **The popover's exact appearance.** `screencapture` fails with
    `could not create image from display` because the terminal lacks Screen Recording
    permission. As a substitute, `tools/render-ui.sh` renders the real views offscreen: the
-   layout, control set and sizing are confirmed (`MenuBarView` fits 340×530 with a custom
-   status, 340×282 on Slack; `SettingsView` 965×640), and SwiftUI's `ImageRenderer` confirms
-   the status card's text. Neither offscreen renderer captures AppKit control *labels* —
-   `cacheDisplay` uses AppKit's drawing path and drops SwiftUI-drawn text in
-   control-heavy views, while `ImageRenderer` marks AppKit-backed controls unsupported.
-   So the popover is proven to build, lay out and size correctly, but its final look is
-   yours to eyeball.
+   layout, control set and sizing are confirmed (`PopoverView` fits 340×324 with nothing
+   picked, 340×346 with a status and duration selected, 340×408 with the custom message and
+   the time picker revealed, 340×186 while a session is running; `SettingsView` 380×331),
+   and SwiftUI's `ImageRenderer` confirms the labels. Neither offscreen renderer captures
+   everything — `cacheDisplay` uses AppKit's drawing path and drops SwiftUI-drawn text in
+   control-heavy views, while `ImageRenderer` marks AppKit-backed controls (the text field,
+   the time stepper, the prominent buttons) unsupported and paints them yellow. So the
+   popover is proven to build, lay out and size correctly, but its final look is yours to
+   eyeball.
 
-   **This limitation has already cost one bug**, so it is worth being concrete about. The
-   popover's middle section — source picker, presets, custom fields — was wrapped in a
-   `ScrollView`, which has no intrinsic height. A `MenuBarExtra` popover sizes itself to fit
-   its content, so the ScrollView reported an ideal height of zero and the entire middle
-   collapsed; `.frame(maxHeight: 420)` only set a ceiling, not a height. The harness missed
-   it because it forced a 700pt-tall frame. Worse, it *cannot* catch it: measured
-   deliberately, an `NSHostingView` in an offscreen window reports the same `fittingSize`
-   (340x530) with and without the ScrollView, because the harness never goes through the
-   popover's sizing path. Popover layout must be checked in the running app.
-5. **Granting Calendar access, and a real meeting appearing.** The event-selection rules,
-   emoji inference, error mapping, expiry and cached-status behaviour are all covered by
-   tests against synthetic events, but only you can approve the macOS permission prompt and
-   confirm a real meeting shows.
-6. **Launch at login surviving a reboot.**
+   **This limitation has already cost one bug**, so it is worth being concrete about. In an
+   earlier version the popover's middle section was wrapped in a `ScrollView`, which has no
+   intrinsic height. A popover sizes itself to fit its content, so the ScrollView reported
+   an ideal height of zero and the entire middle collapsed; `.frame(maxHeight: 420)` only
+   set a ceiling, not a height. The harness missed it because it forced a 700pt-tall frame.
+   Worse, it *cannot* catch it: measured deliberately, an `NSHostingView` in an offscreen
+   window reports the same `fittingSize` with and without the ScrollView, because the
+   harness never goes through the popover's sizing path. This is why the current popover
+   uses plain stacks rather than lazy grids — but popover layout still has to be checked in
+   the running app.
+5. **The popover's keyboard and pointer behaviour.** Return starting Drift, Escape closing
+   the popover, Tab walking the buttons with a visible focus ring, and the hover and pressed
+   states all need a real key press or a real pointer.
+6. **The session ending when you come back.** Drift ends it on the screensaver stopping —
+   `com.apple.screensaver.didstop` and `com.apple.screenIsUnlocked`, with a process-list
+   poll as a backstop — and all three need a real screensaver to have really started.
+7. **Launch at login surviving a reboot.**
 
 ## Note on the Slack version
 
@@ -154,22 +167,33 @@ was removed from the Keychain. `StatusStore` clears the retired
 `drift.cachedSlackStatus` preference key on load so a stale cached status cannot linger.
 It is all recoverable from git history if it is ever wanted back.
 
+## Note on the calendar version
+
+Between the Slack version and this one, Drift read the Mac's Calendar through EventKit and
+showed whatever meeting was in progress, with editable presets, expiry rules, private mode
+and an inferred emoji. All of it was removed to make Drift a "Back soon" sign again: the
+calendar client, its diagnostics, the event-selection and emoji-inference rules and their
+tests were deleted rather than left dormant, the `NSCalendars*UsageDescription` keys are out
+of `Info.plist`, and the app no longer links EventKit. `StatusStore` clears the retired
+`drift.cachedCalendarStatus`, `drift.customStatus`, `drift.presets`, `drift.source` and
+`drift.lastSyncDate` preference keys on load. It is all recoverable from git history if it
+is ever wanted back.
+
 ## Known limitations on this Mac
 
 - **`xcodebuild` cannot be run here at all.** There is no Xcode.app on disk, so the build
   is `./build.sh` (swiftc) and `swift test`. Both were run and both succeed. No claim is
   made about `xcodebuild`, because it was never run.
-- **Ad-hoc signatures change on every rebuild.** Two consequences: macOS may re-prompt for
-  Keychain access to Drift's Slack token after a rebuild, and `SMAppService` may need the
-  launch-at-login toggle flipped again. This is why Settings reads the live
+- **Ad-hoc signatures change on every rebuild.** `SMAppService` may need the
+  launch-at-login toggle flipped again afterwards, which is why Settings reads the live
   `SMAppService.mainApp.status` rather than a stored boolean.
 - **Deployment target is pinned to macOS 15.0** by the CLT's MacOSX15.5 SDK, even though
   this Mac runs 26.5. The binaries run natively; only newer-than-15.5 APIs are off limits.
-- **Calendar emoji are inferred from event titles** by whole-word keyword match, falling
-  back to 🗓️. This is cosmetic; an unmatched title still shows correctly.
-- **Rebuilding can make macOS re-ask for Calendar permission**, for the same ad-hoc-signing
-  reason as the login item.
-- **The screensaver reaches nothing.** By design: no network, no EventKit — `otool -L`
-  confirms `Drift.saver` links only AppKit, SwiftUI, ScreenSaver, Combine and Foundation,
-  while EventKit is linked by the app alone. If Drift is not running, the saver shows the
-  last published status until it expires, then falls back to "Away from desk" on its own.
+- **Drift asks macOS for no permissions at all.** There is nothing to grant and nothing to
+  revoke: no calendar, no contacts, no accessibility, no screen recording.
+- **The screensaver reaches nothing.** By design: no network and no private state —
+  `otool -L` confirms `Drift.saver` links only AppKit, SwiftUI, ScreenSaver, Combine and
+  Foundation. All it can do is read `status.json`.
+- **A session ends with Drift, not without it.** Quitting publishes "Away from desk"; being
+  killed outright cannot. For that case the saver stops believing a payload twelve hours
+  past its return time, which is the only expiry left anywhere in Drift.

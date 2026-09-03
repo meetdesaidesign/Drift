@@ -13,6 +13,24 @@ public struct DriftSettings: Codable, Equatable, Sendable {
     public init() {}
 }
 
+/// Whose desk this is — the name and role in the bottom corner of the screen.
+///
+/// The name comes from the Mac's own account rather than from a preferences pane: a sign
+/// on your own door does not need you to type your name into it. The role is a constant
+/// for the same reason the statuses are constants — it is the one line here that changes
+/// about once a year, so it is a line of code, not a setting.
+public enum DriftIdentity {
+
+    /// The account's full name ("Meet Desai"), or the short user name if the account has
+    /// no full name set.
+    public static var name: String {
+        let full = NSFullUserName().trimmingCharacters(in: .whitespacesAndNewlines)
+        return full.isEmpty ? NSUserName() : full
+    }
+
+    public static let role = "Product Designer II"
+}
+
 /// The four fixed statuses. Not editable, and not stored: a "Back soon" sign with a
 /// preset editor is no longer a sign.
 ///

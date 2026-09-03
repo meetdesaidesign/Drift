@@ -29,11 +29,10 @@ public final class DriftScreenSaverView: ScreenSaverView {
     /// Re-read status.json about every two seconds, so a status extended with "+10 min"
     /// appears without waiting.
     private static let reloadEveryFrames = 40
-    /// Rebuild the SwiftUI view about every 1.5s once the fade-in is done. The burn-in
-    /// drift moves a fifth of a point per second — redrawing it 20 times a second would
-    /// be 20 times the work for no visible difference.
+    /// Rebuild the SwiftUI view about every 1.5s. The burn-in drift moves a fifth of a
+    /// point per second — redrawing it 20 times a second would be 20 times the work for
+    /// no visible difference.
     private static let refreshEveryFrames = 30
-    private static let fadeInSeconds: Double = 1.2
 
     private static let backgroundColour = NSColor(
         calibratedRed: 0.0392, green: 0.0392, blue: 0.0392, alpha: 1
@@ -122,11 +121,9 @@ public final class DriftScreenSaverView: ScreenSaverView {
             }
         }
 
-        // Every frame while fading in; occasionally after that — the return line has to
-        // keep up with the clock, since "Back around 1:35 PM" becomes "Expected back
-        // shortly" on its own.
-        if phase <= DriftScreenSaverView.fadeInSeconds
-            || framesSinceRefresh >= DriftScreenSaverView.refreshEveryFrames {
+        // The return line has to keep up with the clock, since "Back around 1:35 PM"
+        // becomes "Expected back shortly" on its own.
+        if framesSinceRefresh >= DriftScreenSaverView.refreshEveryFrames {
             refreshRootView()
         }
     }

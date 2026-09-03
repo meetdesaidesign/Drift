@@ -11,9 +11,15 @@ import DriftCore
 /// and to look like it belongs on a Mac.
 ///
 /// `phase` is the elapsed time in seconds and is supplied by the host rather than derived
-/// from SwiftUI's animation engine. That is deliberate: inside `legacyScreenSaver`,
-/// SwiftUI's implicit animations cannot be relied on to tick, whereas the saver's own
-/// `animateOneFrame()` always does.
+/// from SwiftUI's animation engine, because inside `legacyScreenSaver` SwiftUI's implicit
+/// animations cannot be relied on to tick.
+///
+/// Nothing here is allowed to *depend* on `phase` advancing. An earlier version faded the
+/// text in over the first second, which meant a screen that had not yet been given an
+/// animation frame rendered at zero opacity — indistinguishable from a broken
+/// screensaver. `phase` now only moves the text a few points for burn-in, so the sign
+/// reads correctly at `phase` 0 and would keep reading correctly if it never advanced
+/// again. `tools/saver-loadtest.swift` checks exactly that.
 public struct DriftScreenView: View {
 
     public var display: DisplayStatus
@@ -31,12 +37,6 @@ public struct DriftScreenView: View {
     public static let background = Color(red: 0.0392, green: 0.0392, blue: 0.0392)   // #0A0A0A
     public static let primaryText = Color(red: 0.949, green: 0.949, blue: 0.941)     // #F2F2F0
     public static let secondaryText = Color(red: 0.549, green: 0.549, blue: 0.529)   // #8C8C87
-
-    /// Ramps 0 → 1 over the first second, so the screen appears rather than snaps on.
-    private var fadeIn: Double {
-        let t = min(max(phase / 1.0, 0), 1)
-        return 1 - pow(1 - t, 3)
-    }
 
     /// Burn-in insurance, and nothing more.
     ///
@@ -86,7 +86,6 @@ public struct DriftScreenView: View {
                     x: -size.width * 0.10 + drift.width,
                     y: size.height * 0.06 + drift.height
                 )
-                .opacity(fadeIn)
             }
             .frame(width: size.width, height: size.height)
             .clipped()

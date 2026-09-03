@@ -152,10 +152,17 @@ grant myself.
 5. **The popover's keyboard and pointer behaviour.** Return starting Drift, Escape closing
    the popover, Tab walking the buttons with a visible focus ring, and the hover and pressed
    states all need a real key press or a real pointer.
-6. **The session ending when you come back.** Drift ends it on the screensaver stopping —
+6. **The screensaver drawing inside the real host.** Verified as far as it can be from
+   outside: `tools/saver-loadtest.swift` loads the installed bundle the way
+   `legacyScreenSaver` does and now asserts that the screen is *not blank before a single
+   animation frame has run*. That check exists because it caught a real bug — the text was
+   faded in over the first second, keyed to elapsed time, so a screensaver that had not yet
+   been given an animation frame drew nothing at all and looked broken. Nothing on that
+   screen may depend on the animation clock.
+7. **The session ending when you come back.** Drift ends it on the screensaver stopping —
    `com.apple.screensaver.didstop` and `com.apple.screenIsUnlocked`, with a process-list
    poll as a backstop — and all three need a real screensaver to have really started.
-7. **Launch at login surviving a reboot.**
+8. **Launch at login surviving a reboot.**
 
 ## Note on the Slack version
 

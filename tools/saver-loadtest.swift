@@ -40,7 +40,27 @@ print("OK  instantiated \(type(of: view)) at \(Int(frame.width))x\(Int(frame.hei
 view.startAnimation()
 print("OK  startAnimation")
 
-// Snapshot at points either side of the fade-in so the ramp itself is visible.
+// Before a single animation frame. This is not a formality: a screensaver whose first
+// frame is blank is indistinguishable from a broken one, and the host decides when — or
+// whether — animateOneFrame() runs. Nothing on this screen may depend on it.
+func litPixels() -> Int {
+    guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { fail("no bitmap rep") }
+    view.cacheDisplay(in: view.bounds, to: rep)
+    var lit = 0
+    for x in stride(from: 0, to: rep.pixelsWide, by: 4) {
+        for y in stride(from: 0, to: rep.pixelsHigh, by: 4) {
+            if let colour = rep.colorAt(x: x, y: y), colour.brightnessComponent > 0.25 { lit += 1 }
+        }
+    }
+    return lit
+}
+
+let litAtRest = litPixels()
+if litAtRest < 50 {
+    fail("the screen is blank before animateOneFrame() has run (\(litAtRest) lit pixels) — nothing may depend on the animation clock")
+}
+print("OK  drew \(litAtRest) lit pixels with no animation frame yet")
+
 let snapshotAtSeconds: [Double] = [0.3, 1.0, 3.0, 30.0]
 var elapsed = 0.0
 var nextSnapshot = 0

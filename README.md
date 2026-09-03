@@ -162,6 +162,10 @@ and the return line at 24–30pt, scaled off the shorter screen edge so the same
 on a laptop panel, a 5K display, a portrait monitor and the thumbnail preview in System
 Settings. Long custom messages wrap and then shrink rather than clip.
 
+Nothing on this screen depends on the animation clock advancing: it reads correctly on the
+very first frame, and would go on reading correctly if the host never gave it another one.
+`tools/saver-loadtest.swift` asserts that.
+
 The text wanders about 14pt over roughly seven minutes as burn-in insurance. That is a
 fifth of a point per second: far below what reads as movement, far enough that no pixel
 holds the same glyph all afternoon.
